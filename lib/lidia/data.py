@@ -8,17 +8,19 @@ from einops import rearrange,repeat
 from PIL import Image
 
 
-def save_burst(burst,path):
+def save_burst(burst,path,name):
     # -- append burst dim --
-    if burst.dim() == 4:
+    if burst.dim() == 3:
         burst = burst[None,:]
+    assert burst.dim() == 4,"must be 4-dims"
 
     # -- save each frame --
     nframes = burst.shape[0]
     for t in range(nframes):
         img_t = burst[t]
-        fn = str(path / ("%05d.png" % t))
-        save_image(img_t,fn)
+        fn_t = str(path / ("%s_%05d.png" % (name,t)))
+        print(fn_t,img_t.min().item(),img_t.max().item())
+        save_image(img_t,fn_t)
 
 def save_image(image,path):
 
@@ -29,7 +31,7 @@ def save_image(image,path):
     # -- to uint8 --
     if image.max() < 100:
         image = image*255.
-    image = np.clip(image.astype(np.uint8),0,255)
+    image = np.clip(image,0,255).astype(np.uint8)
 
     # -- save --
     image = rearrange(image,'c h w -> h w c')

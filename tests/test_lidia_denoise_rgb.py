@@ -20,6 +20,7 @@ import numpy as np
 from einops import rearrange,repeat
 
 # -- package imports [to test] --
+import lidia
 from lidia import denoise_nl
 from lidia import denoise_ntire2020
 from lidia.data import save_burst
@@ -29,6 +30,9 @@ from scipy import optimize
 MAX_NFRAMES = 85
 DATA_DIR = Path("./data/")
 SAVE_DIR = Path("./output/tests/")
+if not SAVE_DIR.exists():
+    SAVE_DIR.mkdir(parents=True)
+
 
 #
 #
@@ -66,8 +70,12 @@ class TestLidiaDenoiseRgb(unittest.TestCase):
         noisy = clean + sigma * th.randn_like(clean)
 
         # -- exec denos --
-        deno_nl = denoise_nl(noisy,sigma)
-        deno_def = denoise_ntire2020(noisy,sigma)
+        deno_nl = lidia.denoise(noisy,sigma,ftype="nl")
+        deno_def = lidia.denoise(noisy,sigma,ftype="ntire2020")
+
+        # -- save for viz --
+        save_burst(deno_nl,SAVE_DIR,"deno_nl")
+        save_burst(deno_def,SAVE_DIR,"deno_default")
 
         # -- compare --
         error_vals = th.sum((deno_nl - deno_def)**2).item()
