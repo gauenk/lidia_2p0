@@ -61,6 +61,7 @@ class TestLidiaDenoiseRgb(unittest.TestCase):
             print(f"WARNING: no images loaded. Check ext [{ext}]")
         burst = 1.*np.stack(burst)
         burst = th.from_numpy(burst).type(th.float32)
+        # burst = th.randn((1,3,256,256))
         return burst
 
     def exec_lidia_denoise(self,name,sigma,device="cuda:0"):
@@ -85,5 +86,5 @@ class TestLidiaDenoiseRgb(unittest.TestCase):
     def test_lidia_denoise(self):
 
         # -- test 1 --
-        name,sigma = "davis_baseball_64x64",50.
+        name,sigma = "davis_baseball_64x64",15.
         self.exec_lidia_denoise(name,sigma)

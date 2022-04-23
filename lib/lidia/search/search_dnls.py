@@ -84,8 +84,6 @@ def search_and_fill(imgs,patches,bufs,srch_inds,flows,args):
     vals,inds = dnls.simple.search.run(srch_img,srch_inds,flows,args.k,
                                        args.ps,args.pt,args.ws,args.wt,1,
                                        scale=args.scale)
-    print("vals.shape: ",vals.shape)
-    print("bufs.vals.shape: ",bufs.vals.shape)
     nq = vals.shape[0]
     bufs.vals[:nq,...] = vals[...]
     bufs.inds[:nq,...] = inds[...]
@@ -112,7 +110,6 @@ def search_and_fill(imgs,patches,bufs,srch_inds,flows,args):
         if pass_key: continue
 
         # -- fill --
-        print("key: ",key,args.scale)
         pkey = dnls.simple.scatter.run(imgs[key],bufs.inds,
                                        args.ps,args.pt,scale=args.scale)
         patches[key][...] = pkey[...]

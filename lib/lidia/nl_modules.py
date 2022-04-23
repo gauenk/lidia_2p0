@@ -15,8 +15,11 @@ import dnls
 def print_extrema(name,tensor):
     tmin = tensor.min().item()
     tmax = tensor.max().item()
-    label = "[%s]: " % name
-    print(label,tmin,tmax)
+    q_quants = th.FloatTensor([.1,.9]).to(tensor.device)
+    quants = th.quantile(tensor.ravel()[5000:7000],q_quants)
+    quants = [q.item() for q in quants]
+    msg = "[%s]: %2.2f %2.2f %2.2f %2.2f" % (name,tmin,tmax,quants[0],quants[1])
+    print(msg)
 
 class AggregationInds(nn.Module):
     """
@@ -148,8 +151,6 @@ class AggregationDnls(nn.Module):
         x = x.permute(0, 2, 3, 1).contiguous().view(images * hor_f, ver_f, patches)
         print("[fwd:agg0:2] x.shape: ",x.shape)
         patch_cnt = torch.ones(x[0:1, ...].shape, device=x.device)
-        print("(pixels_h,pixels_w): ",pixels_h,pixels_w)
-        print("(patch_w,patch_w): ",self.patch_w, self.patch_w)
         patch_cnt = fold(patch_cnt, (pixels_h, pixels_w), (self.patch_w, self.patch_w))
         print("[agg0] patch_cnt.shape: ",patch_cnt.shape)
         x = fold(x, (pixels_h, pixels_w), (self.patch_w, self.patch_w)) / patch_cnt
@@ -183,24 +184,21 @@ class Aggregation0(nn.Module):
         print("[nl_mod:agg0] x.shape: ",x.shape)
         x = rearrange(x,'t (c h w) p -> (t p) 1 1 c h w',c=3,h=ps,w=ps)
         _,_,pt,_,ps,ps = x.shape
-        print("nlDists.shape: ",nlDists.shape)
-        print("nlInds.shape: ",nlInds.shape)
-        nlDists = rearrange(nlDists[:,:,0],'t p -> (t p) 1')
-        nlInds = rearrange(nlInds[:,:,0],'t p thr -> (t p) 1 thr')
-        print("nlDists.shape: ",nlDists.shape)
-        print("nlInds.shape: ",nlInds.shape)
-        print_extrema("agg0.x",x)
-        nlDists = th.exp(-nlDists)
-        x,wx = dnls.simple.gather.run(x,nlDists,nlInds,shape=shape)
-        print_extrema("post-agg0.x",x)
-        print_extrema("post-agg0.wx",wx)
+        _nlDists = rearrange(nlDists[:,:,0],'t p -> (t p) 1')
+        _nlInds = rearrange(nlInds[:,:,0],'t p thr -> (t p) 1 thr')
+        print_extrema("pre-gather-agg0.x",x)
+
+        ones = th.ones_like(_nlDists)
+        x,wx = dnls.simple.gather.run(x,ones,_nlInds,shape=shape)
+        print_extrema("post-gather-agg0.x",x)
+        print_extrema("post-gather-agg0.wx",wx)
         x = x / wx
-        print_extrema("postZ-agg0.x",x)
+        print_extrema("post-gather-agg0.x",x)
         save_burst(x,"agg0_x")
 
         # x = unfold(x, (self.patch_w, self.patch_w))
         # print("[agg0:unfold] x.shape: ",x.shape)
-        x = dnls.simple.scatter.run(x,nlInds,ps,pt)
+        x = dnls.simple.scatter.run(x,_nlInds,ps,pt)
         print_extrema("post-scatter.x",x)
 
         x = scatter2fold(x,images,pt,ps)
@@ -243,14 +241,14 @@ class Aggregation1(nn.Module):
         _,_,pt,_,ps,ps = x.shape
         print("nlDists.shape: ",nlDists.shape)
         print("nlInds.shape: ",nlInds.shape)
-        nlDists = rearrange(nlDists[:,:,0],'t p -> (t p) 1')
-        nlInds = rearrange(nlInds[:,:,0],'t p thr -> (t p) 1 thr')
+        _nlDists = rearrange(nlDists[:,:,0],'t p -> (t p) 1')
+        _nlInds = rearrange(nlInds[:,:,0],'t p thr -> (t p) 1 thr')
         print("nlDists.shape: ",nlDists.shape)
         print("nlInds.shape: ",nlInds.shape)
 
-        nlDists = th.exp(-nlDists)
         print_extrema("pre-agg1.x",x)
-        x,wx = dnls.simple.gather.run(x,nlDists,nlInds,shape=shape,scale=2)
+        ones = th.ones_like(_nlDists)
+        x,wx = dnls.simple.gather.run(x,ones,_nlInds,shape=shape,scale=2)
         save_image(x,"agg1_gather")
         save_image(wx,"agg1_gather_weight")
         print("x.shape: ",x.shape)
@@ -265,7 +263,7 @@ class Aggregation1(nn.Module):
                                .view(x_b * x_c, 1, x_h + 2, x_w + 2)) \
                 .view(x_b, x_c, x_h, x_w)
         # x_ref = unfold(x, (self.patch_w, self.patch_w), dilation=(2, 2))
-        x = dnls.simple.scatter.run(x,nlInds,ps,pt,scale=2)
+        x = dnls.simple.scatter.run(x,_nlInds,ps,pt,scale=2)
         x = scatter2fold(x,images,pt,ps)
         # delta = th.sum((x - x_ref)**2).item()
         # print("x.shape: ",x.shape)
@@ -399,8 +397,12 @@ class SeparableFcNet(nn.Module):
 
         else:
             # sep_part1
+            print_extrema("[pre-sep] x0",x0)
+            print_extrema("[pre-sep] x1",x1)
             x0 = self.sep_part1_s0(x0)
             x1 = self.sep_part1_s1(x1)
+            print_extrema("[sep] x0",x0)
+            print_extrema("[sep] x1",x1)
 
             # agg0
             y_out0 = self.ver_hor_agg0_pre(x0)
@@ -470,7 +472,12 @@ class PatchDenoiseNet(nn.Module):
     def forward(self, patches_n0, dist0, inds0, patches_n1, dist1, inds1,
                 im_params0, im_params1, save_memory, max_chunk):
 
-        print("dist0.shape: ",dist0.shape)
+        print_extrema("patches_n0",patches_n0)
+        print_extrema("patches_n1",patches_n1)
+        delta = th.sum((patches_n0 - patches_n1)**2).item()
+        print("[forward] delta: ",delta)
+        assert delta > 0.
+
         weights0 = self.weights_net0(torch.exp(-self.alpha0.abs() * dist0)).unsqueeze(-1)
         weighted_patches_n0 = patches_n0 * weights0
 
@@ -478,31 +485,14 @@ class PatchDenoiseNet(nn.Module):
         weighted_patches_n1 = patches_n1 * weights1
         weights1_first = weights1[:, :, 0:1, :]
 
-
-        dmin = weighted_patches_n0.min().item()
-        dmax = weighted_patches_n0.max().item()
-        print("weighted_patches_n0[min,max]: ",dmin,dmax)
-        dmin = weighted_patches_n1.min().item()
-        dmax = weighted_patches_n1.max().item()
-        print("weighted_patches_n1[min,max]: ",dmin,dmax)
-        dmin = weights1_first.min().item()
-        dmax = weights1_first.max().item()
-        print("weights1_first[min,max]: ",dmin,dmax)
-        dmin = dist0.min().item()
-        dmax = dist0.max().item()
-        print("dist0[min,max]: ",dmin,dmax)
-        dmin = dist1.min().item()
-        dmax = dist1.max().item()
-        print("dist1[min,max]: ",dmin,dmax)
-
         noise = self.separable_fc_net(weighted_patches_n0,
                                       weighted_patches_n1,
                                       weights1_first,
                                       dist0, inds0,
                                       dist1, inds1,
                                       im_params0, im_params1, save_memory, max_chunk)
-        dmin = noise.min().item()
-        dmax = noise.max().item()
+        print("-"*30)
+        dmin,dmax = noise.min().item(),noise.max().item()
         print("noise[min,max]: ",dmin,dmax)
 
         print("patches_n0.shape: ",patches_n0.shape)
@@ -753,10 +743,13 @@ class NonLocalDenoiser(nn.Module):
         # print("patch_cnt.shape: ",patch_cnt.shape)
         print("nDists.shape: ",nlDists.shape)
         print("nlInds.shape: ",nlInds.shape)
-        nlDists[:,:,[0]] = patch_weights
-        nlDists = nlDists[:,:,0].view(-1,1)
-        nlInds = nlInds[:,:,0].view(-1,1,3)
-        x,wx = dnls.simple.gather.run(image_dn,nlDists,nlInds,shape=shape)
+        dists = th.ones_like(nlDists[:,:,0])
+        dists[...] = patch_weights[...,0]
+        dists = dists.view(-1,1)
+        # nlDists[:,:,[0]] = patch_weights
+        # _nlDists = nlDists[:,:,0].view(-1,1)
+        _nlInds = nlInds[:,:,0].view(-1,1,3)
+        x,wx = dnls.simple.gather.run(image_dn,dists,_nlInds,shape=shape)
         x = x / wx
         print("x[min,max]: ",x.min().item(),x.max().item())
         xmod = (x*0.5+0.5)

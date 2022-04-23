@@ -43,6 +43,8 @@ def exec_nl_step(images,flows,args):
 
     # -- init --
     # pp.pprint(args)
+    print(args.ws)
+    print(args.wt)
 
     # -- create access mask --
     mask,ngroups = search_mask.init_mask(images.shape,args)
@@ -76,10 +78,8 @@ def exec_nl_step(images,flows,args):
         # -- exec search --
         done = False
         for level in range(args.nlevels):
-            print("-"*50)
             key = patches.levels[level]
             args.scale = search_scales[level]
-            print(list(patches[key].keys()))
             mask_l = masks[level]
             print(mask_l.shape)
             done = search.exec_search(patches[key],images,flows,mask_l,bufs[key],args)
@@ -159,10 +159,15 @@ def exec_nl_step(images,flows,args):
     # utils.color.yuv2rgb_images(images)
 
     # -- rescale --
+    # pnoisy = 255.*(pnoisy*0.5+0.5)
+    tmp = images.deno*0.5 + 0.5
+    dmin,dmax = tmp.min().item(),tmp.max().item()
+    print("deno[min,max]: ",dmin,dmax)
+
+    images.deno[...] = 255.*(images.deno*0.5 + 0.5)
     dmin,dmax = images.deno.min().item(),images.deno.max().item()
     print("deno[min,max]: ",dmin,dmax)
-    images.deno[...] = 255.*(images.deno*0.5 + 0.5)
-    # pnoisy = 255.*(pnoisy*0.5+0.5)
+
 
     # -- synch --
     torch.cuda.synchronize()

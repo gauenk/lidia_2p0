@@ -25,6 +25,10 @@ def denoise(patches,bufs,args):
     nlDists0,nlInds0 = format_nl(bufs[levels[0]],args.t)
     nlDists1,nlInds1 = format_nl(bufs[levels[1]],args.t)
 
+    # -- update dist vals --
+    update_dists(nlDists0,patches[levels[0]].noisy)
+    update_dists(nlDists1,patches[levels[1]].noisy)
+
     # -- save ex --
     shape = (t,3,64,64)
     _pnoisy = patches[levels[0]].noisy
@@ -33,6 +37,10 @@ def denoise(patches,bufs,args):
     dnoisy,wd = dnls.simple.gather.run(_pnoisy,_nlDists,_nlInds,shape=shape)
     dnoisy /= wd
     save_burst(dnoisy,"pre_dnoisy")
+
+    delta = th.sum((pnoisy0 - pnoisy1)**2).item()
+    print("delta: ",delta)
+    assert delta > 0.
 
     # -- exec --
     dnoisy = model(model,pnoisy0,nlDists0,nlInds0,pnoisy1,nlDists1,nlInds1)
@@ -71,11 +79,29 @@ def denoise(patches,bufs,args):
 
     th.cuda.synchronize()
 
+def update_dists(nlDists,pnoisy):
+
+    # -- unpack/rescape --
+    t,npt,k = nlDists.shape
+    pnoisy = rescale_patches(pnoisy)
+    pnoisy = pnoisy.view(t,npt,k,-1)
+
+    # -- reompute dist --
+    nlDists[:,:,:-1] = th.mean((pnoisy[:,:,1:,:] - pnoisy[:,:,[0],:])**2,dim=-1)
+
+    # -- fill var --
+    dim = pnoisy.shape[-1]
+    patch_var = th.std(pnoisy[:,:,0],-1)**2 * dim
+    nlDists[:,:,-1] = patch_var
+
 def format_patches(pnoisy,t):
     pnoisy = rearrange(pnoisy,'r k t c h w -> r k (t c h w)')
     pnoisy = rearrange(pnoisy,'(t p) k d -> t p k d',t=t)
-    pnoisy = (pnoisy/255. - 0.5)/0.5
+    pnoisy = rescale_patches(pnoisy)
     return pnoisy
+
+def rescale_patches(patches):
+    return (patches/255. - 0.5)/0.5
 
 def format_nl(bufs,t):
     nlDists = rearrange(bufs.vals,'(t p) k -> t p k',t=t)
