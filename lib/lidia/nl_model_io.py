@@ -61,16 +61,20 @@ def get_lidia_patch_model(device,im_shape,sigma):
     im_params.pixels_w = int(im_shape[-1])
     save_memory = False
     max_batch = 40000
-    def patches_fwd(model,patches_0,dists_0,ind_0,patches_1,dists_1,ind_1):
+    def patches_fwd(model,patches_0,dists_0,inds_0,patches_1,dists_1,inds_1):
         pdn = model.patch_denoise_net
-        patches_0 = patches_0[None,:]
-        patches_1 = patches_1[None,:]
-        dists_0 = dists_0[None,:]
-        dists_1 = dists_1[None,:]
-        pdeno, pweights = pdn(patches_0, dists_0, patches_1, dists_1,
+        patches_0 = patches_0
+        patches_1 = patches_1
+        dists_0 = dists_0
+        dists_1 = dists_1
+        pdeno, pweights = pdn(patches_0, dists_0, inds_0,
+                              patches_1, dists_1, inds_1,
                               im_params, im_params, save_memory, max_batch)
-        pdeno = pdeno * pweights
+        print("pdeno.shape: ",pdeno.shape)
+        pdeno = rearrange(pdeno,'t r (c h w) -> (t r) 1 1 c h w',h=5,w=5)
+        deno = model.final_agg(pdeno,pweights,dists_0,inds_0,im_shape)
         return deno
+
     model.forward = patches_fwd
 
     return model

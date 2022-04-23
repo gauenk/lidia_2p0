@@ -25,7 +25,7 @@ import dnls
 # -- imports --
 import lidia.agg as agg
 import lidia.utils as utils
-import lidia.alloc as alloc
+import lidia.alloc_dnls as alloc
 import lidia.search_mask as search_mask
 import lidia.search as search
 import lidia.deno as deno
@@ -47,17 +47,24 @@ def exec_nl_step(images,flows,args):
     # -- create access mask --
     mask,ngroups = search_mask.init_mask(images.shape,args)
     mask[...] = 1.
+    mask2 = mask.clone()
+    masks = [mask,mask2]
+
+    # -- param --
+    search_scales = [1,2]
+    assert len(search_scales) == args.nlevels
 
     # -- allocate memory --
-    patches = alloc.allocate_patches(args.patch_shape,images.clean,args.device)
-    bufs = alloc.allocate_bufs(args.bufs_shape,args.device,args.version)
+    patches = alloc.allocate_patches(args.patch_shape,images.clean,
+                                     args.device,args.nlevels)
+    bufs = alloc.allocate_bufs(args.bufs_shape,args.device,args.nlevels)
 
     # -- batching params --
     nelems,nbatches = utils.batching.batch_params(mask,args.bsize,args.nstreams)
     cmasked_prev = nelems
 
     # -- color xform --
-    utils.color.rgb2yuv_images(images)
+    # utils.color.rgb2yuv_images(images)
 
     # -- logging --
     if args.verbose: print(f"Processing LIDIA [step {args.step}]")
@@ -67,7 +74,15 @@ def exec_nl_step(images,flows,args):
     for batch in range(nbatches):
 
         # -- exec search --
-        done = search.exec_search(patches,images,flows,mask,bufs,args)
+        done = False
+        for level in range(args.nlevels):
+            print("-"*50)
+            key = patches.levels[level]
+            args.scale = search_scales[level]
+            print(list(patches[key].keys()))
+            mask_l = masks[level]
+            print(mask_l.shape)
+            done = search.exec_search(patches[key],images,flows,mask_l,bufs[key],args)
 
         # -- refinemenent the searching --
         # search.exec_refinement(patches,bufs,args.sigma)
@@ -88,6 +103,7 @@ def exec_nl_step(images,flows,args):
         fill_valid_patches(vpatches,patches,bufs)
 
         # -- aggregate patches --
+        bufs[bufs.levels[0]].vals[:,0] = 1. # no weights
         agg.agg_patches(patches,images,bufs,args)
 
         # -- misc --
@@ -125,6 +141,7 @@ def exec_nl_step(images,flows,args):
 
     # -- fill zeros with basic --
     fill_img = images.basic if args.step==1 else images.noisy
+    fill_img = (fill_img/255.-0.5)/0.5
     index = torch.nonzero(weights==0,as_tuple=True)
     images.deno[index] = fill_img[index]
 
@@ -139,7 +156,13 @@ def exec_nl_step(images,flows,args):
         exit(0)
 
     # -- color xform --
-    utils.color.yuv2rgb_images(images)
+    # utils.color.yuv2rgb_images(images)
+
+    # -- rescale --
+    dmin,dmax = images.deno.min().item(),images.deno.max().item()
+    print("deno[min,max]: ",dmin,dmax)
+    images.deno[...] = 255.*(images.deno*0.5 + 0.5)
+    # pnoisy = 255.*(pnoisy*0.5+0.5)
 
     # -- synch --
     torch.cuda.synchronize()
@@ -161,20 +184,27 @@ def reweight_vals(images):
     print("tozero: [%d/%d]" % (nmask_after,nmask_before))
 
 def fill_valid_patches(vpatches,patches,bufs):
+    levels = list(patches.levels)
+    for level in levels:
+        fill_valid_patches_levels(vpatches[level],patches[level],bufs[level])
+
+def fill_valid_patches_levels(vpatches,patches,bufs):
     tim = th.iinfo(th.int32).min
     valid = th.where(~th.any(th.any(bufs.inds==tim,2),1))
     for key in patches:
         if (key in patches.tensors) and not(patches[key] is None):
             patches[key][valid] = vpatches[key]
 
-def get_valid_vals(bufs):
-    tim = th.iinfo(th.int32).min
-    valid = th.where(~th.any(th.any(bufs.inds==tim,2),1))
-    nv = len(valid[0])
-    vals = bufs.vals[valid]
-    return vals
-
 def get_valid_bufs(bufs):
+    levels = list(bufs.levels)
+    vbufs = edict()
+    for level in levels:
+        vbufs[level] = get_valid_bufs_level(bufs[level])
+    vbufs.shape = vbufs[levels[0]].shape
+    vbufs.levels = bufs.levels
+    return vbufs
+
+def get_valid_bufs_level(bufs):
     tim = th.iinfo(th.int32).min
     valid = th.where(~th.any(th.any(bufs.inds==tim,2),1))
     nv = len(valid[0])
@@ -188,7 +218,15 @@ def get_valid_bufs(bufs):
     return vbufs
 
 def get_valid_patches(patches,bufs):
-    # valid = th.nonzero(th.all(bufs.inds!=-1,1),as_tuple=True)
+    levels = list(patches.levels)
+    vpatches = edict()
+    for level in levels:
+        vpatches[level] = get_valid_patches_level(patches[level],bufs[level])
+    vpatches.shape = vpatches[levels[0]].shape
+    vpatches.levels = patches.levels
+    return vpatches
+
+def get_valid_patches_level(patches,bufs):
     tim = th.iinfo(th.int32).min
     valid = th.where(~th.any(th.any(bufs.inds==tim,2),1))
     nv = len(valid[0])

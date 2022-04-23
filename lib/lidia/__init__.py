@@ -24,8 +24,9 @@ def denoise(noisy, sigma, pm_vid=None, flows=None,
     elif ftype in ["default","ntire2020"]:
         noisy_01 = noisy/255.
         noisy_n1p1 = (noisy_01 - 0.5)/0.5
+        print("noisy.n1p1[min,max]: ",noisy_n1p1.min().item(),noisy_n1p1.max().item())
         deno_n1p1 = denoise_ntire2020(noisy_n1p1, sigma, pm_vid, flows)
-        print("n1p1: ",deno_n1p1.min(),deno_n1p1.max())
+        print("n1p1[min,max]: ",deno_n1p1.min().item(),deno_n1p1.max().item())
         deno_01 = deno_n1p1 * 0.5 + 0.5
         print("01: ",deno_01.min(),deno_01.max())
         deno = 255. * deno_01

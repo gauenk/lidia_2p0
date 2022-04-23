@@ -17,8 +17,8 @@ import torchvision.utils as tvu
 # -- imports --
 import lidia.agg as agg
 import lidia.utils as utils
-import lidia.alloc_dnls as alloc_dnls
-import lidia.alloc as alloc
+import lidia.alloc_dnls as alloc
+# import lidia.alloc as alloc
 import lidia.search_mask as search_mask
 import lidia.search as search
 import lidia.proc_nl as proc_nl
@@ -56,12 +56,12 @@ def denoise_nl(noisy, sigma, pm_vid=None, flows=None, gpuid=0, clean=None, verbo
     # -- setup lidia inputs --
     t,c,h,w = noisy.shape
     params = get_params(sigma,verbose,"default")
-    flows = alloc_dnls.allocate_flows(flows,noisy.shape,noisy.device)
+    flows = alloc.allocate_flows(flows,noisy.shape,noisy.device)
     if not(clean is None):
         params.srch_img = ["clean","clean"]
 
     # -- allocs and args --
-    images = alloc_dnls.allocate_images(noisy,None,clean)
+    images = alloc.allocate_images(noisy,None,clean)
     args = get_args(params,t,c,0,noisy.device)
 
     # -- get model --
@@ -70,6 +70,8 @@ def denoise_nl(noisy, sigma, pm_vid=None, flows=None, gpuid=0, clean=None, verbo
     args.deno = "lidia"
     args.bsize = 4096*5
     args.rand_mask = False
+    args.chnls = 1
+    args.scale = 1
 
     # -- exec non-local step --
     proc_nl.exec_nl_step(images,flows,args)

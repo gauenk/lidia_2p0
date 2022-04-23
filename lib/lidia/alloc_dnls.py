@@ -11,20 +11,32 @@ from easydict import EasyDict as edict
 # -- Get Patches --
 #
 
-def allocate_patches(shape,clean,device):
+def allocate_patches(shape,clean,device,nlevels):
+    tsize,npa,pt,c,ps,ps = shape
+    patches = edict()
+    levels = []
+    for level in range(nlevels):
+        key = "s%d" % level
+        levels.append(key)
+        patches[key] = allocate_patches_level(shape,clean,device)
+    patches.shape = shape
+    patches.levels = levels
+    return patches
 
-    # -- unpack shapes --
-    tsize,npa,ps_t,c,ps,ps = shape
+def allocate_patches_level(shape,clean,device):
+
+    # -- init --
     tf32 = th.float32
+    tsize = shape[0]
 
     # -- alloc mem --
     patches = edict()
-    patches.noisy = th.zeros((tsize,npa,ps_t,c,ps,ps)).type(tf32).to(device)
-    patches.basic = th.zeros((tsize,npa,ps_t,c,ps,ps)).type(tf32).to(device)
+    patches.noisy = th.zeros(shape,device=device,dtype=tf32)
+    patches.basic = th.zeros(shape,device=device,dtype=tf32)
     patches.clean = None
     if not(clean is None):
-        patches.clean = th.zeros((tsize,npa,ps_t,c,ps,ps)).type(tf32).to(device)
-    patches.flat = th.zeros((tsize)).type(th.bool).to(device)
+        patches.clean = th.zeros(shape,device=device,dtype=tf32)
+    patches.flat = th.zeros(tsize,device=device,dtype=th.bool)
     patches.shape = shape
 
     # -- names --
@@ -93,7 +105,18 @@ def allocate_images(noisy,basic,clean,search=None):
 # -- Allocate Non-Local Search Buffers --
 #
 
-def allocate_bufs(shape,device):
+def allocate_bufs(shape,device,nlevels):
+    bufs = edict()
+    levels = []
+    for level in range(nlevels):
+        key = "s%d" % level
+        levels.append(key)
+        bufs[key] = allocate_bufs_level(shape,device)
+    bufs.shape = shape
+    bufs.levels = levels
+    return bufs
+
+def allocate_bufs_level(shape,device):
 
     # -- unpack shapes --
     tsize,npa = shape

@@ -9,10 +9,23 @@ import torch as th
 from pathlib import Path
 from einops import repeat
 
+def print_extrema(name,tensor):
+    tmin = tensor.min().item()
+    tmax = tensor.max().item()
+    label = "[%s]: " % name
+    print(label,tmin,tmax)
+
+def save_burst(burst,name):
+    nframes = len(burst)
+    for t in range(nframes):
+        img_t = burst[t]
+        name_t = "%s_%02d" % (name,t)
+        save_image(img_t,name_t)
+
 def save_image(img,name):
 
     # -- paths --
-    root = Path("/home/gauenk/tmp/")
+    root = Path("./output/nl_modules/")
     if not root.exists(): root.mkdir()
 
     # -- add batch dim --
@@ -104,9 +117,15 @@ class Aggregation0(nn.Module):
         print("(patch_w,patch_w): ",self.patch_w, self.patch_w)
         patch_cnt = fold(patch_cnt, (pixels_h, pixels_w), (self.patch_w, self.patch_w))
         print("[agg0] patch_cnt.shape: ",patch_cnt.shape)
+        print_extrema("prefold-agg0.x",x)
         x = fold(x, (pixels_h, pixels_w), (self.patch_w, self.patch_w)) / patch_cnt
+        print_extrema("postfold-agg0.x",x)
+        print("[agg0:fold]: x.shape ",x.shape)
         x = unfold(x, (self.patch_w, self.patch_w))
+        print_extrema("unfold-agg0.x",x)
+        print("[agg0:unfold]: x.shape ",x.shape)
         x = x.view(images, hor_f, ver_f, patches).permute(0, 3, 1, 2)
+        print("[agg0:view]: x.shape ",x.shape)
 
         return x
 
@@ -130,6 +149,9 @@ class Aggregation1(nn.Module):
         patch_cnt = torch.ones(x[0:1, ...].shape, device=x.device)
         patch_cnt = fold(patch_cnt, (pixels_h, pixels_w), (self.patch_w, self.patch_w), dilation=(2, 2))
         x = fold(x, (pixels_h, pixels_w), (self.patch_w, self.patch_w), dilation=(2, 2)) / patch_cnt
+        print_extrema("post-agg1.x",x)
+        # print_extrema("post-agg1.wx",wx)
+        save_burst((x+20.)/20.,"nl_agg1_x")
         x_b, x_c, x_h, x_w = x.shape
         x = self.bilinear_conv(nn_func.pad(x, [1] * 4, 'reflect').view(x_b * x_c, 1, x_h + 2, x_w + 2)) \
             .view(x_b, x_c, x_h, x_w)
@@ -260,22 +282,44 @@ class SeparableFcNet(nn.Module):
 
             # agg0
             y_out0 = self.ver_hor_agg0_pre(x0)
+            print_extrema("[a] y_out0",y_out0)
             print("y_out0.shape: ",y_out0.shape)
             y_out0 = self.agg0(y_out0, im_params0['pixels_h'], im_params0['pixels_w'])
+            print_extrema("[b] y_out0",y_out0)
             print("y_out0.shape: ",y_out0.shape)
             y_out0 = self.ver_hor_bn_re_agg0_post(y_out0)
             print("y_out0.shape: ",y_out0.shape)
+            print_extrema("[c] y_out0",y_out0)
 
             # agg1
             y_out1 = self.ver_hor_agg1_pre(x1)
+            print_extrema("[a] y_out1",y_out1)
             y_out1 = weights1 * self.agg1(y_out1 / weights1,
                                           im_params1['pixels_h'],
                                           im_params1['pixels_w'])
+            print_extrema("[b] y_out1",y_out1)
             y_out1 = self.ver_hor_bn_re_agg1_post(y_out1)
+            print_extrema("[c] y_out1",y_out1)
+
+            # # agg0
+            # y_out0 = self.ver_hor_agg0_pre(x0)
+            # print("y_out0.shape: ",y_out0.shape)
+            # y_out0 = self.agg0(y_out0, im_params0['pixels_h'], im_params0['pixels_w'])
+            # print("y_out0.shape: ",y_out0.shape)
+            # y_out0 = self.ver_hor_bn_re_agg0_post(y_out0)
+            # print("y_out0.shape: ",y_out0.shape)
+
+            # # agg1
+            # y_out1 = self.ver_hor_agg1_pre(x1)
+            # y_out1 = weights1 * self.agg1(y_out1 / weights1,
+            #                               im_params1['pixels_h'],
+            #                               im_params1['pixels_w'])
+            # y_out1 = self.ver_hor_bn_re_agg1_post(y_out1)
 
             # sep_part2
             inputs = torch.cat((x0, x1, y_out0, y_out1), dim=-2)
             out = self.sep_part2(torch.cat((x0, x1, y_out0, y_out1), dim=-2))
+            print_extrema("[sepfc] out",out)
 
         return out
 
@@ -328,10 +372,12 @@ class PatchDenoiseNet(nn.Module):
         noise = self.separable_fc_net(weighted_patches_n0, weighted_patches_n1, weights1_first,
                                       im_params0, im_params1, save_memory, max_chunk)
 
+        print("patches_n0.shape: ",patches_n0.shape)
         patches_dn = patches_n0[:, :, 0, :] - noise.squeeze(-2)
         patches_no_mean = patches_dn - patches_dn.mean(dim=-1, keepdim=True)
         patch_exp_weights = (patches_no_mean ** 2).mean(dim=-1, keepdim=True)
         patch_weights = torch.exp(-self.beta.abs() * patch_exp_weights)
+        print_extrema("patch_weights",patch_weights)
 
         return patches_dn, patch_weights
 

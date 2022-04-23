@@ -24,7 +24,7 @@ def default_params(sigma,verbose=False):
     params.nThreads = [-1,-1]
     # params.nSimilarPatches = [100,60]
     params.nSimilarPatches = [14,14]
-    params.nkeep = [-1,-1]
+    params.nkeep = [1,1]
     params.nstreams = [1,1]
     params.offset = [2*(sigma/255.)**2,0.]
     params.onlyFrame = [-1,-1]
@@ -49,6 +49,7 @@ def default_params(sigma,verbose=False):
     params.variThres = [2.7,0.7] # 0.7
     params.verbose = [verbose,verbose]
 
+    params.nlevels = [2,2]
     params.rand_mask = [False,False]
     # params.rand_mask = [True,True]
     params.eigh_method = ["faiss","faiss"]
