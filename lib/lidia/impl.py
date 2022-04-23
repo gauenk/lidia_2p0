@@ -17,6 +17,7 @@ import torchvision.utils as tvu
 # -- imports --
 import lidia.agg as agg
 import lidia.utils as utils
+import lidia.alloc_dnls as alloc_dnls
 import lidia.alloc as alloc
 import lidia.search_mask as search_mask
 import lidia.search as search
@@ -34,7 +35,7 @@ import pprint
 pp = pprint.PrettyPrinter(indent=4)
 
 # -- create model --
-from lidia.model_io import get_lidia_patch_model,get_default_opt
+from lidia.nl_model_io import get_lidia_patch_model,get_default_opt
 
 def denoise_nl(noisy, sigma, pm_vid=None, flows=None, gpuid=0, clean=None, verbose=True):
     """
@@ -53,20 +54,22 @@ def denoise_nl(noisy, sigma, pm_vid=None, flows=None, gpuid=0, clean=None, verbo
         noisy = th.from_numpy(noisy).to(device)
 
     # -- setup lidia inputs --
-    c = noisy.shape[1]
+    t,c,h,w = noisy.shape
     params = get_params(sigma,verbose,"default")
-    flows = alloc.allocate_flows(flows,noisy.shape,noisy.device)
+    flows = alloc_dnls.allocate_flows(flows,noisy.shape,noisy.device)
     if not(clean is None):
         params.srch_img = ["clean","clean"]
 
     # -- allocs and args --
-    images = alloc.allocate_images(noisy,None,clean)
-    args = get_args(params,c,0,noisy.device)
+    images = alloc_dnls.allocate_images(noisy,None,clean)
+    args = get_args(params,t,c,0,noisy.device)
 
     # -- get model --
     args.lidia_model = get_lidia_patch_model(device,noisy.shape,sigma)
+    # args.deno = "bayes"
     args.deno = "lidia"
-    args.bsize = 5000
+    args.bsize = 4096*5
+    args.rand_mask = False
 
     # -- exec non-local step --
     proc_nl.exec_nl_step(images,flows,args)

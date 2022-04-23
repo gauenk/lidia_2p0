@@ -22,6 +22,7 @@ def default_params(sigma,verbose=False):
     params.mod_sel = ["clipped","clipped"]
     params.nParts = [-1,-1]
     params.nThreads = [-1,-1]
+    # params.nSimilarPatches = [100,60]
     params.nSimilarPatches = [14,14]
     params.nkeep = [-1,-1]
     params.nstreams = [1,1]
@@ -54,7 +55,7 @@ def default_params(sigma,verbose=False):
     # params.version = ["eccv2022","eccv2022"]
     params.version = ["dnls","dnls"]
     params.stride = [1,1]
-    params.agg_type = ["default","default"]
+    params.agg_type = ["dnls","dnls"]
     return params
 
 def get_params(sigma,verbose=False,version=None):
@@ -158,7 +159,7 @@ def get_params(sigma,verbose=False,version=None):
     # params['nfilter'] = [-1,-1]
     return params
 
-def get_args(params,c,step,device):
+def get_args(params,t,c,step,device):
     """
 
     A Python implementation for one step of the NLBayes code
@@ -213,7 +214,8 @@ def get_args(params,c,step,device):
         """
         Shortcuts
         """
-
+        @property
+        def t(self): return self.nframes
         @property
         def k(self): return self.nSimilarPatches
         @property
@@ -265,6 +267,7 @@ def get_args(params,c,step,device):
     offsets = [2*(params.sigma[0]/255.)**2,0.]
     params.step = [0,1]
     params.c = [c,c]
+    params.nframes = [t,t]
     params.nstreams = [int(x) for x in optional(params,'nstreams',[1,1])]
     params.nkeep = [int(x) for x in optional(params,'nkeep',[-1,-1])]
     params.offset = [float(x) for x in optional(params,'offset',offsets)]

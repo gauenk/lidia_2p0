@@ -26,7 +26,7 @@ def agg_patches_kweight(patches,images,bufs,args,cs_ptr=None,denom="hw"):
 
     # -- iterate over "nkeep" --
     if args.nkeep != -1:
-        vinds = bufs.inds[:,:args.nkeep]
+        vinds = vinds[:,:args.nkeep]
 
     compute_agg_batch_kweight(images.deno,vnoisy,vinds,images.weights,
                              vvals,images.vals,args.ps,args.ps_t,cs_ptr,denom=denom)

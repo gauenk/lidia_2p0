@@ -19,6 +19,9 @@ import torchvision.utils as tvu
 import vnlb
 from vnlb.testing.file_io import save_images
 
+# -- batching, scatter, search, and gather --
+import dnls
+
 # -- imports --
 import lidia.agg as agg
 import lidia.utils as utils
@@ -116,7 +119,7 @@ def exec_nl_step(images,flows,args):
     # print("sum: ",th.sum(images.weights>0).item())
 
     # -- reweight deno --
-    weights = repeat(images.weights,'t h w -> t c h w',c=args.c)
+    weights = images.weights
     index = torch.nonzero(weights,as_tuple=True)
     images.deno[index] /= weights[index]
 
@@ -157,21 +160,23 @@ def reweight_vals(images):
     delta_nmask = nmask_before - nmask_after
     print("tozero: [%d/%d]" % (nmask_after,nmask_before))
 
-
 def fill_valid_patches(vpatches,patches,bufs):
-    valid = th.nonzero(th.all(bufs.inds!=-1,1),as_tuple=True)
+    tim = th.iinfo(th.int32).min
+    valid = th.where(~th.any(th.any(bufs.inds==tim,2),1))
     for key in patches:
         if (key in patches.tensors) and not(patches[key] is None):
             patches[key][valid] = vpatches[key]
 
 def get_valid_vals(bufs):
-    valid = th.nonzero(th.all(bufs.inds!=-1,1),as_tuple=True)
+    tim = th.iinfo(th.int32).min
+    valid = th.where(~th.any(th.any(bufs.inds==tim,2),1))
     nv = len(valid[0])
     vals = bufs.vals[valid]
     return vals
 
 def get_valid_bufs(bufs):
-    valid = th.nonzero(th.all(bufs.inds!=-1,1),as_tuple=True)
+    tim = th.iinfo(th.int32).min
+    valid = th.where(~th.any(th.any(bufs.inds==tim,2),1))
     nv = len(valid[0])
     vbufs = edict()
     for key in bufs:
@@ -184,10 +189,10 @@ def get_valid_bufs(bufs):
 
 def get_valid_patches(patches,bufs):
     # valid = th.nonzero(th.all(bufs.inds!=-1,1),as_tuple=True)
-    valid_b = ~th.any(th.any(bufs.inds==-1,2),1)
-    valid = th.nonzero(valid_b,as_tuple=True)
+    tim = th.iinfo(th.int32).min
+    valid = th.where(~th.any(th.any(bufs.inds==tim,2),1))
     nv = len(valid[0])
-    print("nv: ",nv)
+    print("total,nv: ",len(bufs.inds),nv)
     vpatches = edict()
     for key in patches:
         if (key in patches.tensors) and not(patches[key] is None):

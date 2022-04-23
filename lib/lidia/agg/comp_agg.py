@@ -31,7 +31,7 @@ def agg_patches(patches,images,bufs,args,cs_ptr=None,denom="chw"):
     elif stype == "midpix":
         agg_patches_midpix(patches,images,bufs,args,cs_ptr,denom=denom)
     elif stype == "dnls":
-        agg_patches_dnls(patches,images,bufs,args,cs_ptr)
+        agg_patches_dnls(patches,images,bufs,args)
     else:
         raise ValueError(f"Uknown aggregate type {stype}.")
 

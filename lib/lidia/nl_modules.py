@@ -1,3 +1,35 @@
+
+from torch.nn.functional import unfold
+from torch.nn.functional import fold
+import torch.nn as nn
+import torch.nn.functional as nn_func
+from torch.nn.functional import conv2d
+from .utils.lidia_utils import *
+
+import torch as th
+from pathlib import Path
+from einops import repeat,rearrange
+
+class AggregationInds(nn.Module):
+    """
+    Module by Gauen (2022)
+    """
+    def __init__(self, patch_w):
+        super(AggregationInds, self).__init__()
+        self.patch_w = patch_w
+
+    def forward(self, x, pixels_h, pixels_w):
+        images, patches, hor_f, ver_f = x.shape
+        x = x.permute(0, 2, 3, 1).contiguous().view(images * hor_f, ver_f, patches)
+        patch_cnt = torch.ones(x[0:1, ...].shape, device=x.device)
+        patch_cnt = fold(patch_cnt, (pixels_h, pixels_w), (self.patch_w, self.patch_w))
+        x = fold(x, (pixels_h, pixels_w), (self.patch_w, self.patch_w)) / patch_cnt
+        x = unfold(x, (self.patch_w, self.patch_w))
+        x = x.view(images, hor_f, ver_f, patches).permute(0, 3, 1, 2)
+
+        return x
+
+
 from torch.nn.functional import unfold
 from torch.nn.functional import fold
 import torch.nn as nn
@@ -77,6 +109,39 @@ class VerHorMat(nn.Module):
         return self.hor.out_features
 
 
+class AggregationDnls(nn.Module):
+    def __init__(self, patch_w):
+        super(Aggregation0, self).__init__()
+        self.patch_w = patch_w
+
+    def forward2fold(self, x, pixels_h, pixels_w):
+        images, patches, hor_f, ver_f = x.shape
+        x = x.permute(0, 2, 3, 1).contiguous().view(images * hor_f, ver_f, patches)
+        print("[fwd2fold:agg0:2] x.shape: ",x.shape)
+        patch_cnt = torch.ones(x[0:1, ...].shape, device=x.device)
+        print("(pixels_h,pixels_w): ",pixels_h,pixels_w)
+        print("(patch_w,patch_w): ",self.patch_w, self.patch_w)
+        patch_cnt = fold(patch_cnt, (pixels_h, pixels_w), (self.patch_w, self.patch_w))
+        print("[fwd2fold:agg0] patch_cnt.shape: ",patch_cnt.shape)
+        x = fold(x, (pixels_h, pixels_w), (self.patch_w, self.patch_w)) / patch_cnt
+        return patch_cnt
+
+    def forward(self, x, pixels_h, pixels_w):
+        print("[fwd:agg0] x.shape: ",x.shape)
+        images, patches, hor_f, ver_f = x.shape
+        x = x.permute(0, 2, 3, 1).contiguous().view(images * hor_f, ver_f, patches)
+        print("[fwd:agg0:2] x.shape: ",x.shape)
+        patch_cnt = torch.ones(x[0:1, ...].shape, device=x.device)
+        print("(pixels_h,pixels_w): ",pixels_h,pixels_w)
+        print("(patch_w,patch_w): ",self.patch_w, self.patch_w)
+        patch_cnt = fold(patch_cnt, (pixels_h, pixels_w), (self.patch_w, self.patch_w))
+        print("[agg0] patch_cnt.shape: ",patch_cnt.shape)
+        x = fold(x, (pixels_h, pixels_w), (self.patch_w, self.patch_w)) / patch_cnt
+        x = unfold(x, (self.patch_w, self.patch_w))
+        x = x.view(images, hor_f, ver_f, patches).permute(0, 3, 1, 2)
+
+        return x
+
 class Aggregation0(nn.Module):
     def __init__(self, patch_w):
         super(Aggregation0, self).__init__()
@@ -85,20 +150,20 @@ class Aggregation0(nn.Module):
     def forward2fold(self, x, pixels_h, pixels_w):
         images, patches, hor_f, ver_f = x.shape
         x = x.permute(0, 2, 3, 1).contiguous().view(images * hor_f, ver_f, patches)
-        print("[agg0:2] x.shape: ",x.shape)
+        print("[fwd2fold:agg0:2] x.shape: ",x.shape)
         patch_cnt = torch.ones(x[0:1, ...].shape, device=x.device)
         print("(pixels_h,pixels_w): ",pixels_h,pixels_w)
         print("(patch_w,patch_w): ",self.patch_w, self.patch_w)
         patch_cnt = fold(patch_cnt, (pixels_h, pixels_w), (self.patch_w, self.patch_w))
-        print("[agg0] patch_cnt.shape: ",patch_cnt.shape)
+        print("[fwd2fold:agg0] patch_cnt.shape: ",patch_cnt.shape)
         x = fold(x, (pixels_h, pixels_w), (self.patch_w, self.patch_w)) / patch_cnt
         return patch_cnt
 
     def forward(self, x, pixels_h, pixels_w):
-        print("[agg0] x.shape: ",x.shape)
+        print("[fwd:agg0] x.shape: ",x.shape)
         images, patches, hor_f, ver_f = x.shape
         x = x.permute(0, 2, 3, 1).contiguous().view(images * hor_f, ver_f, patches)
-        print("[agg0:2] x.shape: ",x.shape)
+        print("[fwd:agg0:2] x.shape: ",x.shape)
         patch_cnt = torch.ones(x[0:1, ...].shape, device=x.device)
         print("(pixels_h,pixels_w): ",pixels_h,pixels_w)
         print("(patch_w,patch_w): ",self.patch_w, self.patch_w)
@@ -405,7 +470,6 @@ class NonLocalDenoiser(nn.Module):
 
     def denoise_image(self, image_n, train, save_memory, max_batch,
                       srch_img=None, srch_flows=None):
-
         patch_numel = (self.patch_w ** 2) * image_n.shape[1]
 
         image_n0 = self.pad_crop0(image_n, self.pad_offs, train)
@@ -421,10 +485,8 @@ class NonLocalDenoiser(nn.Module):
                                                              device=image_n0.device).view(-1, 1, 1, 1)
         patch_dist0 = top_dist0.view(top_dist0.shape[0], -1, 14)[:, :, 1:]
 
-        print("[NlDeno.denoise_image]: image_n0.shape: ",image_n0.shape)
         im_patches_n0 = unfold(image_n0, (self.patch_w, self.patch_w)).transpose(1, 0)\
             .contiguous().view(patch_numel, -1).t()
-        print("[NlDeno.denoise_image]: im_patches_n0.shape: ",im_patches_n0.shape)
         im_patches_n0 = im_patches_n0[top_ind0.view(-1), :].view(top_ind0.shape[0], -1, 14, patch_numel)
 
         patch_var0 = im_patches_n0[:, :, 0, :].std(dim=-1).unsqueeze(-1).pow(2) * patch_numel
@@ -548,12 +610,12 @@ class NonLocalDenoiser(nn.Module):
         ones_tmp = torch.ones(1, 1, patch_numel, device=im_patches_n0.device)
         patch_weights = (patch_weights * ones_tmp).transpose(2, 1)
         image_dn = image_dn.transpose(2, 1)
-        print("[pre-fold]: image_dn.shape: ",image_dn.shape)
+        print("image_dn.shape: ",image_dn.shape)
         image_dn = fold(image_dn, (im_params0['pixels_h'], im_params0['pixels_w']),
                         (self.patch_w, self.patch_w))
         patch_cnt = fold(patch_weights, (im_params0['pixels_h'],im_params0['pixels_w']),
                          (self.patch_w, self.patch_w))
-        print("[post-fold]: image_dn.shape: ",image_dn.shape)
+        print("image_dn.shape: ",image_dn.shape)
         print("patch_cnt.shape: ",patch_cnt.shape)
 
         row_offs = min(self.patch_w - 1, im_params0['patches_h'] - 1)
@@ -648,3 +710,5 @@ class Logger(object):
         # this handles the flush command by doing nothing.
         # you might want to specify some extra behavior here.
         pass
+
+

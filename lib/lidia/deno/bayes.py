@@ -32,8 +32,10 @@ def denoise(patches,args):
     flat_bdim(patches)
 
     # -- cov --
+    print("pre eig.")
     pinput = patches.noisy if args.cpatches == "noisy" else patches.basic
     covMat,eigVals,eigVecs = compute_cov_mat(pinput,args.rank,args.eigh_method)
+    print("post eig.")
 
     # -- eigen values --
     eigVals_rs = rearrange(eigVals,'(b c) p -> b c p',b=bsize)

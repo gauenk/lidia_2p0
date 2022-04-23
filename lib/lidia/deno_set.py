@@ -12,6 +12,7 @@ from easydict import EasyDict as edict
 from einops import rearrange
 
 # -- load model info --
+from .nl_model_io import select_sigma,get_lidia_model,get_default_opt
 from .model_io import select_sigma,get_lidia_model,get_default_opt
 
 
