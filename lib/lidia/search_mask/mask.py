@@ -50,21 +50,22 @@ def update_mask_inds(mask,inds,chnls,nkeep=-1,cs_ptr=None,boost=True,val=0):
     # -- keep only to "nkeep" --
     if nkeep != -1:
         inds = inds[:,:nkeep]
-    bsize,num = inds.shape
+    bsize,num,three = inds.shape
 
     # -- rm "-1" inds --
-    if inds.shape[0] == 0: return
-    args = th.where(th.all(inds != -1,1))
-    # print("A",inds.shape)
-    inds = inds[args]
-    # print("B",inds.shape)
-    f_bsize,_ = inds.shape
-    if inds.shape[0] == 0: return
+    # if inds.shape[0] == 0: return
+    # args = th.where(th.all(inds != -1,1))
+    # # print("A",inds.shape)
+    # inds = inds[args]
+    # # print("B",inds.shape)
+    # f_bsize,_ = inds.shape
+    # if inds.shape[0] == 0: return
 
-    # -- augment inds --
-    # aug_inds = th.zeros((3,f_bsize,num),dtype=th.int64)
-    # aug_inds = aug_inds.to(inds.device)
-    aug_inds = get_3d_inds(inds,chnls,h,w)
+    # # -- augment inds --
+    # # aug_inds = th.zeros((3,f_bsize,num),dtype=th.int64)
+    # # aug_inds = aug_inds.to(inds.device)
+    # aug_inds = get_3d_inds(inds,chnls,h,w)
+    aug_inds = rearrange(inds,'b n three -> (b n) three').long()
 
     # -- (one #) -> (three #s) --
     # if f_bsize < 10:

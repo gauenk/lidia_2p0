@@ -43,12 +43,11 @@ def exec_nl_step(images,flows,args):
 
     # -- create access mask --
     mask,ngroups = search_mask.init_mask(images.shape,args)
-    mask_r = repeat(mask,'t h w -> t c h w',c=3)
-    # save_burst(mask_r,"output/mask/","mask")
+    mask[...] = 1.
 
     # -- allocate memory --
     patches = alloc.allocate_patches(args.patch_shape,images.clean,args.device)
-    bufs = alloc.allocate_bufs(args.bufs_shape,args.device)
+    bufs = alloc.allocate_bufs(args.bufs_shape,args.device,args.version)
 
     # -- batching params --
     nelems,nbatches = utils.batching.batch_params(mask,args.bsize,args.nstreams)
@@ -75,11 +74,12 @@ def exec_nl_step(images,flows,args):
 
         # -- valid patches --
         vpatches = get_valid_patches(patches,bufs)
+        vbufs = get_valid_bufs(bufs)
         if vpatches.shape[0] == 0:
             break
 
         # -- denoise patches --
-        deno.denoise(vpatches,args,args.deno)
+        deno.denoise(vpatches,vbufs,args,args.deno)
 
         # -- fill valid --
         fill_valid_patches(vpatches,patches,bufs)
@@ -170,9 +170,24 @@ def get_valid_vals(bufs):
     vals = bufs.vals[valid]
     return vals
 
-def get_valid_patches(patches,bufs):
+def get_valid_bufs(bufs):
     valid = th.nonzero(th.all(bufs.inds!=-1,1),as_tuple=True)
     nv = len(valid[0])
+    vbufs = edict()
+    for key in bufs:
+        if (key in bufs.tensors) and not(bufs[key] is None):
+            vbufs[key] = bufs[key][valid]
+        else:
+            vbufs[key] = bufs[key]
+    vbufs.shape[0] = nv
+    return vbufs
+
+def get_valid_patches(patches,bufs):
+    # valid = th.nonzero(th.all(bufs.inds!=-1,1),as_tuple=True)
+    valid_b = ~th.any(th.any(bufs.inds==-1,2),1)
+    valid = th.nonzero(valid_b,as_tuple=True)
+    nv = len(valid[0])
+    print("nv: ",nv)
     vpatches = edict()
     for key in patches:
         if (key in patches.tensors) and not(patches[key] is None):

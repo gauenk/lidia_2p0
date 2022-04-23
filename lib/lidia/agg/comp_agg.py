@@ -17,39 +17,7 @@ from npc.utils import Timer
 from .agg_midpix import agg_patches_midpix
 from .agg_kweight import agg_patches_kweight
 from .agg_pweight import agg_patches_pweight
-
-def computeAggregation(deno,group,indices,weights,mask,nSimP,params=None,step=0):
-
-    # # -- create python-params for parser --
-    # params,swig_params,_,_ = parse_args(deno,0.,None,params)
-    # params = edict({k:v[0] for k,v in params.items()})
-
-    # -- extract info for explicit call --
-    ps = params['sizePatch'][step]
-    ps_t = params['sizePatchTime'][step]
-    onlyFrame = params['onlyFrame'][step]
-    aggreBoost =  params['aggreBoost'][step]
-
-    # -- convert groups to patches  --
-    t,c,h,w = deno.shape
-    nSimP = len(indices)
-    patches = groups2patches(group,c,ps,ps_t,nSimP)
-
-    # -- exec search --
-    deno_clone = deno.copy()
-    nmasked = exec_aggregation(deno,patches,indices,weights,mask,
-                               ps,ps_t,onlyFrame,aggreBoost)
-
-    # -- pack results --
-    results = {}
-    results['deno'] = deno
-    results['weights'] = weights
-    results['mask'] = mask
-    results['nmasked'] = nmasked
-    results['psX'] = ps
-    results['psT'] = ps_t
-
-    return results
+from .agg_dnls import agg_patches_dnls
 
 @Timer("agg_patches")
 def agg_patches(patches,images,bufs,args,cs_ptr=None,denom="chw"):
@@ -62,6 +30,8 @@ def agg_patches(patches,images,bufs,args,cs_ptr=None,denom="chw"):
         agg_patches_pweight(patches,images,bufs,args,cs_ptr,denom=denom)
     elif stype == "midpix":
         agg_patches_midpix(patches,images,bufs,args,cs_ptr,denom=denom)
+    elif stype == "dnls":
+        agg_patches_dnls(patches,images,bufs,args,cs_ptr)
     else:
         raise ValueError(f"Uknown aggregate type {stype}.")
 

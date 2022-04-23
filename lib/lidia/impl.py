@@ -33,6 +33,8 @@ from lidia.data import save_burst
 import pprint
 pp = pprint.PrettyPrinter(indent=4)
 
+# -- create model --
+from lidia.model_io import get_lidia_patch_model,get_default_opt
 
 def denoise_nl(noisy, sigma, pm_vid=None, flows=None, gpuid=0, clean=None, verbose=True):
     """
@@ -43,6 +45,8 @@ def denoise_nl(noisy, sigma, pm_vid=None, flows=None, gpuid=0, clean=None, verbo
     # -- get device --
     use_gpu = th.cuda.is_available() and gpuid >= 0
     device = 'cuda:%d' % gpuid if use_gpu else 'cpu'
+
+    # -- model --
 
     # -- to tensor --
     if not th.is_tensor(noisy):
@@ -55,9 +59,16 @@ def denoise_nl(noisy, sigma, pm_vid=None, flows=None, gpuid=0, clean=None, verbo
     if not(clean is None):
         params.srch_img = ["clean","clean"]
 
-    # -- non-local step --
+    # -- allocs and args --
     images = alloc.allocate_images(noisy,None,clean)
     args = get_args(params,c,0,noisy.device)
+
+    # -- get model --
+    args.lidia_model = get_lidia_patch_model(device,noisy.shape,sigma)
+    args.deno = "lidia"
+    args.bsize = 5000
+
+    # -- exec non-local step --
     proc_nl.exec_nl_step(images,flows,args)
     deno = images['deno'].clone()
 

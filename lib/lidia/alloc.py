@@ -76,6 +76,38 @@ def allocate_flows(flows,shape,device):
         flows = edict({k:v.to(device) for k,v in flows.items()})
     return flows
 
+#
+#
+# -- Allocate Non-Local Search Buffers --
+#
+#
+
+def allocate_bufs(shape,device,atype):
+    if atype == "eccv2022":
+        return allocate_bufs_eccv2022(shape,device)
+    elif atype == "faiss":
+        return allocate_bufs_faiss(shape,device)
+    elif atype == "dnls":
+        return allocate_bufs_dnls(shape,device)
+    else:
+        raise ValueError("Uknown bufs allocate type [{atype}]")
+
+def allocate_bufs_eccv2022(shape,device):
+
+    # -- unpack shapes --
+    tsize,npa = shape
+    tf32 = th.float32
+    tl = th.long
+
+    # -- alloc mem --
+    l2bufs = edict()
+    l2bufs.vals = th.zeros((tsize,npa),dtype=tf32,device=device)
+    l2bufs.inds = -th.ones((tsize,npa),dtype=tl,device=device)
+    l2bufs.shape = shape
+    l2bufs.tensors = ["vals","inds"]
+
+    return l2bufs
+
 def allocate_bufs_faiss(shape,device):
 
     # -- unpack shapes --
@@ -88,22 +120,25 @@ def allocate_bufs_faiss(shape,device):
     l2bufs.vals = th.zeros((tsize,npa),dtype=tf32,device=device)
     l2bufs.inds = -th.ones((tsize,npa),dtype=ti32,device=device)
     l2bufs.shape = shape
+    l2bufs.tensors = ["vals","inds"]
 
     return l2bufs
 
-def allocate_bufs(shape,device):
+def allocate_bufs_dnls(shape,device):
 
     # -- unpack shapes --
     tsize,npa = shape
     tf32 = th.float32
-    tl = th.long
+    ti32 = th.int32
 
     # -- alloc mem --
     l2bufs = edict()
     l2bufs.vals = th.zeros((tsize,npa),dtype=tf32,device=device)
-    l2bufs.inds = -th.ones((tsize,npa),dtype=tl,device=device)
+    l2bufs.inds = -th.ones((tsize,npa,3),dtype=ti32,device=device)
     l2bufs.shape = shape
+    l2bufs.tensors = ["vals","inds"]
 
     return l2bufs
+
 
 

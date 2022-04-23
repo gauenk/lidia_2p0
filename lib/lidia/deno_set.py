@@ -11,44 +11,9 @@ import torch.nn.functional as tnnf
 from easydict import EasyDict as edict
 from einops import rearrange
 
+# -- load model info --
+from .model_io import select_sigma,get_lidia_model,get_default_opt
 
-def select_sigma(sigma):
-    sigmas = np.array([15, 25, 50])
-    msigma = np.argmin((sigmas - sigma)**2)
-    return sigmas[msigma]
-
-def get_nl_deno(device,sigma):
-    # -- select noise --
-    lidia_sigma = select_sigma(sigma)
-
-    # -- load arch --
-    arch_opt = ArchitectureOptions(rgb=True, small_network=False)
-    pad_offs, total_pad = calc_padding(arch_opt)
-    nl_denoiser = NonLocalDenoiser(pad_offs, arch_opt).to(device)
-    criterion = nn.MSELoss(reduction='mean')
-    nl_denoiser.cuda()
-
-    # -- select device --
-    device = next(nl_denoiser.parameters()).device
-    state_file_name0 = '/home/gauenk/Documents/packages/lidia/lidia-deno/models/model_state_sigma_{}_c.pt'.format(lidia_sigma)
-    assert os.path.isfile(state_file_name0)
-    model_state0 = torch.load(state_file_name0)
-    nl_denoiser.patch_denoise_net.load_state_dict(model_state0['state_dict'])
-    return nl_denoiser
-
-def get_default_opt(sigma):
-    opt = edict()
-    opt.sigma = sigma
-    opt.seed = 123
-    opt.max_chunk = 40000
-    opt.block_w = 16
-    opt.lr = 1e-3
-    opt.epoch_num = 5
-    opt.epochs_between_check = 5
-    opt.dset_stride = 1
-    opt.train_batch_size = 4
-    opt.cuda_retrain = True
-    return opt
 
 def denoise_ntire2020(noisy,sigma,pm_vid=None,flows=None):
 
@@ -60,19 +25,19 @@ def denoise_ntire2020(noisy,sigma,pm_vid=None,flows=None):
     if pm_vid is None: pm_vid = noisy
 
     # -- get model & info --
-    nl_denoiser = get_nl_deno(noisy.device,sigma)
+    nl_denoiser = get_lidia_model(noisy.device,noisy.shape,sigma)
     opt = get_default_opt(sigma)
 
     # -- denoise --
     with th.no_grad():
-        deno_n = nl_denoiser(noisy, train=False, save_memory=True,
+        deno_n = nl_denoiser(noisy, train=False, save_memory=False,
                              max_chunk=opt.max_chunk, srch_img=pm_vid, srch_flows=flows)
     return deno_n
 
 def denoise_npc(noisy,sigma,pm_basic):
 
     # -- get deno --
-    nl_denoiser = get_nl_deno(noisy.device,sigma)
+    nl_denoiser = get_lidia_model(noisy.device,noisy.shape,sigma)
 
     # -- adaptation config --
     opt = get_default_opt(sigma)

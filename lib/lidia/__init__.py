@@ -8,6 +8,9 @@ warnings.simplefilter('ignore', category=NumbaPerformanceWarning)
 # -- API --
 #
 
+from . import modules
+from . import nl_modules
+
 from . import data
 from . import data_modules
 from .deno_set import denoise_npc,denoise_ntire2020

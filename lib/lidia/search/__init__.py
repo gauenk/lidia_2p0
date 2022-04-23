@@ -1,6 +1,8 @@
 from .search import exec_search_eccv2022
 from .search_faiss import exec_search_faiss
+from .search_dnls import exec_search_dnls
 from .refinement import exec_refinement
+
 
 
 # -- searching --
@@ -9,6 +11,8 @@ def exec_search(patches,imgs,flows,mask,bufs,args):
         return exec_search_eccv2022(patches,imgs,flows,mask,bufs,args)
     elif args.version == "faiss":
         return exec_search_faiss(patches,imgs,flows,mask,bufs,args)
+    elif args.version == "dnls":
+        return exec_search_dnls(patches,imgs,flows,mask,bufs,args)
     else:
         raise ValueError(f"Uknown search method [{args.srch_method}]")
 

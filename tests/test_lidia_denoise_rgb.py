@@ -67,15 +67,16 @@ class TestLidiaDenoiseRgb(unittest.TestCase):
 
         # -- get data --
         clean = self.load_burst(name).to(device)
+        print("clean.shape: ",clean.shape)
         noisy = clean + sigma * th.randn_like(clean)
 
         # -- exec denos --
-        deno_nl = lidia.denoise(noisy,sigma,ftype="nl")
         deno_def = lidia.denoise(noisy,sigma,ftype="ntire2020")
+        deno_nl = lidia.denoise(noisy,sigma,ftype="nl")
 
         # -- save for viz --
-        save_burst(deno_nl,SAVE_DIR,"deno_nl")
         save_burst(deno_def,SAVE_DIR,"deno_default")
+        save_burst(deno_nl,SAVE_DIR,"deno_nl")
 
         # -- compare --
         error_vals = th.sum((deno_nl - deno_def)**2).item()

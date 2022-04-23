@@ -22,17 +22,17 @@ def default_params(sigma,verbose=False):
     params.mod_sel = ["clipped","clipped"]
     params.nParts = [-1,-1]
     params.nThreads = [-1,-1]
-    params.nSimilarPatches = [100,60]
+    params.nSimilarPatches = [14,14]
     params.nkeep = [-1,-1]
-    params.nstreams = [60,60]
+    params.nstreams = [1,1]
     params.offset = [2*(sigma/255.)**2,0.]
     params.onlyFrame = [-1,-1]
     params.procStep = [3,3]
     params.rank = [39,39]
     params.sigma = [sigma,sigma]
     params.sigmaBasic = [sigma,0]
-    params.sizePatch  = [7,7]
-    params.sizePatchTime  = [2,2]
+    params.sizePatch  = [5,5]
+    params.sizePatchTime  = [1,1]
     params.sizeSearchTimeBwd = [6,6]
     params.sizeSearchTimeFwd = [6,6]
     params.sizeSearchWindow = [27,27]
@@ -48,9 +48,11 @@ def default_params(sigma,verbose=False):
     params.variThres = [2.7,0.7] # 0.7
     params.verbose = [verbose,verbose]
 
-    params.rand_mask = [True,True]
+    params.rand_mask = [False,False]
+    # params.rand_mask = [True,True]
     params.eigh_method = ["faiss","faiss"]
-    params.version = ["eccv2022","eccv2022"]
+    # params.version = ["eccv2022","eccv2022"]
+    params.version = ["dnls","dnls"]
     params.stride = [1,1]
     params.agg_type = ["default","default"]
     return params
@@ -213,6 +215,8 @@ def get_args(params,c,step,device):
         """
 
         @property
+        def k(self): return self.nSimilarPatches
+        @property
         def ps(self): return self.sizePatch
         @property
         def ps_t(self): return self.sizePatchTime
@@ -221,7 +225,11 @@ def get_args(params,c,step,device):
         @property
         def npatches(self): return self.nSimilarPatches
         @property
+        def ws(self): return self.sizeSearchWindow
+        @property
         def w_s(self): return self.sizeSearchWindow
+        @property
+        def wt(self): return self.sizeSearchTimeFwd
         @property
         def nWt_f(self): return self.sizeSearchTimeFwd
         @property
@@ -257,7 +265,7 @@ def get_args(params,c,step,device):
     offsets = [2*(params.sigma[0]/255.)**2,0.]
     params.step = [0,1]
     params.c = [c,c]
-    params.nstreams = [int(x) for x in optional(params,'nstreams',[1,18])]
+    params.nstreams = [int(x) for x in optional(params,'nstreams',[1,1])]
     params.nkeep = [int(x) for x in optional(params,'nkeep',[-1,-1])]
     params.offset = [float(x) for x in optional(params,'offset',offsets)]
     params.bsize = [int(x) for x in optional(params,'bsize',[8,8])]

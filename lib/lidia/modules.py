@@ -8,6 +8,7 @@ from .utils.lidia_utils import *
 import torch as th
 from pathlib import Path
 from einops import repeat
+
 def save_image(img,name):
 
     # -- paths --
@@ -81,11 +82,28 @@ class Aggregation0(nn.Module):
         super(Aggregation0, self).__init__()
         self.patch_w = patch_w
 
-    def forward(self, x, pixels_h, pixels_w):
+    def forward2fold(self, x, pixels_h, pixels_w):
         images, patches, hor_f, ver_f = x.shape
         x = x.permute(0, 2, 3, 1).contiguous().view(images * hor_f, ver_f, patches)
+        print("[agg0:2] x.shape: ",x.shape)
         patch_cnt = torch.ones(x[0:1, ...].shape, device=x.device)
+        print("(pixels_h,pixels_w): ",pixels_h,pixels_w)
+        print("(patch_w,patch_w): ",self.patch_w, self.patch_w)
         patch_cnt = fold(patch_cnt, (pixels_h, pixels_w), (self.patch_w, self.patch_w))
+        print("[agg0] patch_cnt.shape: ",patch_cnt.shape)
+        x = fold(x, (pixels_h, pixels_w), (self.patch_w, self.patch_w)) / patch_cnt
+        return patch_cnt
+
+    def forward(self, x, pixels_h, pixels_w):
+        print("[agg0] x.shape: ",x.shape)
+        images, patches, hor_f, ver_f = x.shape
+        x = x.permute(0, 2, 3, 1).contiguous().view(images * hor_f, ver_f, patches)
+        print("[agg0:2] x.shape: ",x.shape)
+        patch_cnt = torch.ones(x[0:1, ...].shape, device=x.device)
+        print("(pixels_h,pixels_w): ",pixels_h,pixels_w)
+        print("(patch_w,patch_w): ",self.patch_w, self.patch_w)
+        patch_cnt = fold(patch_cnt, (pixels_h, pixels_w), (self.patch_w, self.patch_w))
+        print("[agg0] patch_cnt.shape: ",patch_cnt.shape)
         x = fold(x, (pixels_h, pixels_w), (self.patch_w, self.patch_w)) / patch_cnt
         x = unfold(x, (self.patch_w, self.patch_w))
         x = x.view(images, hor_f, ver_f, patches).permute(0, 3, 1, 2)
@@ -105,8 +123,10 @@ class Aggregation1(nn.Module):
         self.bilinear_conv.weight.requires_grad = False
 
     def forward(self, x, pixels_h, pixels_w):
+        print("[agg1:1] x.shape: ",x.shape)
         images, patches, hor_f, ver_f = x.shape
         x = x.permute(0, 2, 3, 1).view(images * hor_f, ver_f, patches)
+        print("[agg1:2] x.shape: ",x.shape)
         patch_cnt = torch.ones(x[0:1, ...].shape, device=x.device)
         patch_cnt = fold(patch_cnt, (pixels_h, pixels_w), (self.patch_w, self.patch_w), dilation=(2, 2))
         x = fold(x, (pixels_h, pixels_w), (self.patch_w, self.patch_w), dilation=(2, 2)) / patch_cnt
@@ -189,6 +209,9 @@ class SeparableFcNet(nn.Module):
         self.sep_part2 = SeparablePart2(arch_opt=arch_opt, hor_size_in=56, patch_numel=patch_numel, ver_size=ver_size)
 
     def forward(self, x0, x1, weights1, im_params0, im_params1, save_memory, max_chunk):
+        print("x0.shape: ",x0.shape)
+        print("x1.shape: ",x1.shape)
+        print("weights1.shape: ",weights1.shape)
         if save_memory:
             out = torch.zeros(x0[:, :, 0:1, :].shape, device=x0.device).fill_(float('nan'))
             out_s0_shape = torch.Size((x0.shape[0:2]) +
@@ -208,8 +231,11 @@ class SeparableFcNet(nn.Module):
             y0_shape = torch.Size((out_part1_s0[:, :, 0:1, :].shape[0:3]) +
                                   (self.ver_hor_agg0_pre.get_ver_out(),))
             y_tmp0 = torch.zeros(y0_shape, device=out_part1_s0.device).fill_(float('nan'))
+            print("y_tmp0.shape: ",y_tmp0.shape)
             apply_on_chuncks(self.ver_hor_agg0_pre, out_part1_s0, max_chunk, y_tmp0)
+            print("y_tmp0.shape: ",y_tmp0.shape)
             y_tmp0 = self.agg0(y_tmp0, im_params0['pixels_h'], im_params0['pixels_w'])
+            print("y_tmp0.shape: ",y_tmp0.shape)
 
             # agg1
             y1_shape = torch.Size((out_part1_s1[:, :, 0:1, :].shape[0:3]) +
@@ -234,15 +260,21 @@ class SeparableFcNet(nn.Module):
 
             # agg0
             y_out0 = self.ver_hor_agg0_pre(x0)
+            print("y_out0.shape: ",y_out0.shape)
             y_out0 = self.agg0(y_out0, im_params0['pixels_h'], im_params0['pixels_w'])
+            print("y_out0.shape: ",y_out0.shape)
             y_out0 = self.ver_hor_bn_re_agg0_post(y_out0)
+            print("y_out0.shape: ",y_out0.shape)
 
             # agg1
             y_out1 = self.ver_hor_agg1_pre(x1)
-            y_out1 = weights1 * self.agg1(y_out1 / weights1, im_params1['pixels_h'], im_params1['pixels_w'])
+            y_out1 = weights1 * self.agg1(y_out1 / weights1,
+                                          im_params1['pixels_h'],
+                                          im_params1['pixels_w'])
             y_out1 = self.ver_hor_bn_re_agg1_post(y_out1)
 
             # sep_part2
+            inputs = torch.cat((x0, x1, y_out0, y_out1), dim=-2)
             out = self.sep_part2(torch.cat((x0, x1, y_out0, y_out1), dim=-2))
 
         return out
@@ -282,8 +314,10 @@ class PatchDenoiseNet(nn.Module):
         self.weights_net1 = FcNet()
         self.alpha1 = nn.Parameter(torch.tensor((0.5,), dtype=torch.float32))
 
-    def forward(self, patches_n0, dist0, patches_n1, dist1, im_params0, im_params1, save_memory, max_chunk):
+    def forward(self, patches_n0, dist0, patches_n1, dist1, im_params0, im_params1,
+                save_memory, max_chunk):
 
+        print("dist0.shape: ",dist0.shape)
         weights0 = self.weights_net0(torch.exp(-self.alpha0.abs() * dist0)).unsqueeze(-1)
         weighted_patches_n0 = patches_n0 * weights0
 

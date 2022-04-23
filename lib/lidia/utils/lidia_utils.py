@@ -32,7 +32,6 @@ def add_noise_to_image(image_c, sigma):
     image_n = image_c + sigma_255_to_torch(sigma) * torch.randn_like(image_c)
     return image_n
 
-
 def get_image_params(image, patch_w, neigh_pad):
     im_params = dict()
     im_params['batches'] = image.shape[0]
@@ -44,7 +43,6 @@ def get_image_params(image, patch_w, neigh_pad):
     im_params['pad_patches_h'] = image.shape[2] - (patch_w - 1)
     im_params['pad_patches_w'] = image.shape[3] - (patch_w - 1)
     im_params['pad_patches'] = im_params['pad_patches_h'] * im_params['pad_patches_w']
-
     return im_params
 
 
