@@ -81,7 +81,8 @@ def denoise_nl(noisy, sigma, pm_vid=None, flows=None, gpuid=0, clean=None, verbo
     args.lidia_model = get_lidia_patch_model(device,noisy.shape,sigma)
     # args.deno = "bayes"
     args.deno = "lidia"
-    args.bsize = 4624*5#4096*5
+    # args.bsize = 4624*5#4096*5
+    args.bsize = 4096*5
     args.rand_mask = False
     args.chnls = 1
     args.dilation = 1

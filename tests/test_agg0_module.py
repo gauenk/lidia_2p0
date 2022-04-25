@@ -174,13 +174,13 @@ class TestLidiaDenoiseRgb(unittest.TestCase):
         model_nl = get_lidia_model_nl(device,im_shape,sigma)
 
         # -- exec ntire search  --
-        ntire_output = model_ntire.run_nn0(noisy)
+        ntire_output = model_ntire.run_nn0(noisy/255.)
         ntire_patches = ntire_output[0]
         ntire_dists = ntire_output[1]
         ntire_inds = ntire_output[2]
 
         # -- exec nl search  --
-        nl_output = model_nl.run_nn0_dnls_search(noisy)
+        nl_output = model_nl.run_nn0_dnls_search(noisy/255.)
         nl_patches = nl_output[0]
         nl_dists = nl_output[1]
         nl_inds = nl_output[2]
@@ -335,13 +335,21 @@ class TestLidiaDenoiseRgb(unittest.TestCase):
         error = error.sum().item()
         assert error < 1e-8
 
-        # -- inds  --
-        # error = (ntire_inds - nl_inds)**2
-        # error = error.sum().item()
-        # assert error < 1e-10
+        # -- ave patch content  --
+        # allow for some error b/c k^th rank may have multi. equiv dists
+        nl_mp = nl_patches[...,:,:].mean(-2)
+        ntire_mp = ntire_patches[...,:,:].mean(-2)
+        error = (nl_mp - ntire_mp)**2
+        error = error.sum().item()
+        assert error < 3.
+
+        # -- 1st patch content  --
+        error = (nl_patches[...,0,:] - ntire_patches[...,0,:])**2
+        error = error.sum().item()
+        assert error < 1e-8
 
         # -- [nl] patch-based dists == dist --
-        nl_patches = run_rgb2gray_patches(nl_patches,ps)/255.
+        nl_patches = run_rgb2gray_patches(nl_patches,ps)
         dists = (nl_patches - nl_patches[...,[0],:])**2
         nl_pdists = th.sum(dists,-1)
         error = (nl_pdists - nl_dists)**2
@@ -349,7 +357,7 @@ class TestLidiaDenoiseRgb(unittest.TestCase):
         assert error < 1e-8
 
         # -- [ntire] patch-based dists == dist --
-        ntire_patches = run_rgb2gray_patches(ntire_patches,ps)/255.
+        ntire_patches = run_rgb2gray_patches(ntire_patches,ps)
         dists = (ntire_patches - ntire_patches[...,[0],:])**2
         ntire_pdists = th.sum(dists,-1)
         error = (ntire_pdists - ntire_dists)**2

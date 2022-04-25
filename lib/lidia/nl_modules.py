@@ -323,6 +323,7 @@ class Aggregation1(nn.Module):
         # print("[pre-view] x.shape: ",x.shape)
         # print_extrema("[nl]post-agg1.x",x)
         # save_burst((x+3.)/8.,"nl_agg1_x")
+        print("[nl_modules] x.shape: ",x.shape)
 
         x = dnls.simple.scatter.run(x,_nlInds,ps,pt,dilation=2)
         x = scatter2fold(x,images,pt,ps)
@@ -479,7 +480,7 @@ class SeparableFcNet(nn.Module):
 
             # agg1
             y_out1 = self.ver_hor_agg1_pre(x1)
-            # print_extrema("[a] y_out1",y_out1)
+            print_extrema("[a] y_out1",y_out1)
             y_out1 = weights1 * self.agg1(y_out1 / weights1,
                                           dist1, inds1,
                                           im_params1['pixels_h'],
@@ -642,21 +643,27 @@ class NonLocalDenoiser(nn.Module):
         device = image_n.device
         patch_numel = (self.patch_w ** 2) * image_n.shape[1]
         image_n0 = self.pad_crop0(image_n, self.pad_offs, train)
+        ps = self.patch_w
+        pad = ps//2
 
         # -- get search image --
         if self.arch_opt.rgb: img_nn0 = self.rgb2gray(image_n0)
         else: img_nn0 = image_n0
 
         # -- get search inds --
-        queryInds = th.arange(5*68*68,device=device).reshape(-1,1,1,1)
-        queryInds = get_3d_inds(queryInds,68,68)[:,0]
-        queryInds[...,1] += 16 # (100 - 68)/2.
-        queryInds[...,2] += 16
+        t,c,h,w = image_n.shape
+        hp,wp = h+2*pad,w+2*pad
+        queryInds = th.arange(t*hp*wp,device=device).reshape(-1,1,1,1)
+        queryInds = get_3d_inds(queryInds,hp,wp)[:,0]
+        t,c,h0,w0 = image_n0.shape
+        sh,sw = (h0 - hp)//2,(w0 - wp)//2
+        queryInds[...,1] += sh
+        queryInds[...,2] += sw
 
         # -- search --
         ps = self.patch_w
         k,pt,ws,wt,chnls = 14,1,29,0,1
-        nlDists,nlInds = dnls.simple.search.run(img_nn0,queryInds,None,
+        nlDists,nlInds = dnls.simple.search.run(255.*img_nn0,queryInds,None,
                                                 k,ps,pt,ws,wt,chnls)
 
         # -- rename dists,inds --
@@ -680,8 +687,8 @@ class NonLocalDenoiser(nn.Module):
         # patch_dist0 = th.cat((patch_dist0, patch_var0), dim=-1)
 
         # -- rescale --
-        top_ind0[...,1] -= 16
-        top_ind0[...,2] -= 16
+        top_ind0[...,1] -= sw
+        top_ind0[...,2] -= sw
 
         # -- reshape --
         ip0 = im_patches_n0
@@ -759,7 +766,87 @@ class NonLocalDenoiser(nn.Module):
         return ip0,top_dist0,dnls_inds
 
     def run_nn1_dnls_search(self,image_n,train=False):
-        pass
+
+        # -- unpack --
+        ps = self.patch_w
+        pad = 2*(ps-1) # dilation "= 2"
+
+        # -- pad & unpack --
+        patch_numel = (self.patch_w ** 2) * image_n.shape[1]
+        device = image_n.device
+        image_n1 = self.pad_crop1(image_n, train, 'reflect')
+        im_n1_b, im_n1_c, im_n1_h, im_n1_w = image_n1.shape
+        print("[reflect] image_n1.shape: ",image_n1.shape)
+
+        # -- bilinear conv & crop --
+        image_n1 = image_n1.view(im_n1_b * im_n1_c, 1,im_n1_h, im_n1_w)
+        image_n1 = self.bilinear_conv(image_n1)
+        print("[post-bilinear] image_n1.shape: ",image_n1.shape)
+        image_n1 = image_n1.view(im_n1_b, im_n1_c, im_n1_h - 2, im_n1_w - 2)
+        image_n1 = self.pad_crop1(image_n1, train, 'constant')
+
+        #
+        #  -- DNLS Search --
+        #
+
+        # -- get search image --
+        if self.arch_opt.rgb: img_nn1 = self.rgb2gray(image_n1)
+        else: img_nn1 = image_n1
+
+        # -- get search inds --
+        pad_s = ps//2
+        t,c,h,w = image_n.shape
+        hp,wp = h+2*pad_s,w+2*pad_s # determines # of pix centers
+        queryInds = th.arange(t*hp*wp,device=device).reshape(-1,1,1,1)
+        # hp,wp = h+2*pad,w+2*pad # determines what pixel inds mean
+        queryInds = get_3d_inds(queryInds,hp,wp)[:,0]
+        print("queryInds.shape: ",queryInds.shape,68*68*5)
+        t,c,h0,w0 = image_n1.shape
+        sh,sw = (h0 - hp)//2,(w0 - wp)//2
+        print(h0,w0,sh,sw,hp)
+        queryInds[...,1] += sh
+        queryInds[...,2] += sw
+        print(queryInds[0])
+
+        # -- exec search --
+        k,pt,ws,wt,chnls = 14,1,29,0,1
+        nlDists,nlInds = dnls.simple.search.run(255.*img_nn1,queryInds,None,
+                                                k,ps,pt,ws,wt,chnls,
+                                                stride=2,dilation=2)
+
+        #
+        # -- Scatter Section --
+        #
+
+        # -- dnls --
+        pad = ps//2
+        _t,_c,_h,_w = image_n.shape
+        hp,wp = _h+2*pad,_w+2*pad
+        im_patches_n1 = dnls.simple.scatter.run(image_n1,nlInds,ps,dilation=2)
+        print("im_patches_n1.shape: ",im_patches_n1.shape)
+        ishape = '(t ih iw) k 1 c h w -> t (ih iw) k (c h w)'
+        im_patches_n1 = rearrange(im_patches_n1,ishape,ih=hp,iw=wp)
+        print("im_patches_n1.shape: ",im_patches_n1.shape)
+
+        #
+        # -- Final Formatting --
+        #
+
+
+        # -- centering inds --
+        nlInds[...,1] -= sh
+        nlInds[...,2] -= sw
+
+        # -- re-shaping --
+        pad_s = ps//2
+        t,c,h,w = image_n.shape
+        hp,wp = h+2*pad_s,w+2*pad_s # determines # of pix centers
+        nlDists = rearrange(nlDists,'(t h w) k -> t h w k',t=t,h=hp)
+        nlInds = rearrange(nlInds,'(t h w) k tr -> t h w k tr',t=t,h=hp)
+        ip1 = im_patches_n1
+        ip1 = rearrange(ip1,'t (h w) k d -> t h w k d',h=hp)
+
+        return ip1,nlDists,nlInds
 
     def run_nn1_lidia_search(self,image_n,train=False):
 
@@ -878,117 +965,69 @@ class NonLocalDenoiser(nn.Module):
 
     def denoise_image(self, image_n, train, save_memory, max_batch,
                       srch_img=None, srch_flows=None):
+
+        # -- misc unpack --
         patch_numel = (self.patch_w ** 2) * image_n.shape[1]
 
+        # -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+        #
+        #             kNN Image [Scale = 1]
+        #
+        # -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+
+        # -- prepeare for search --
         image_n0 = self.pad_crop0(image_n, self.pad_offs, train)
         if self.arch_opt.rgb:
             image_for_nn0 = self.rgb2gray(image_n0)
         else:
             image_for_nn0 = image_n0
 
+        #
+        # -- knn search --
+        #
+
+        pp = im_params0['pad_patches']
         im_params0 = get_image_params(image_n0, self.patch_w, 14)
         im_params0['pad_patches_w_full'] = im_params0['pad_patches_w']
         top_dist0, top_ind0 = self.find_nn(image_for_nn0, im_params0, self.patch_w)
-        top_ind0 += im_params0['pad_patches'] * torch.arange(top_ind0.shape[0],
-                                                             device=image_n0.device).view(-1, 1, 1, 1)
-        patch_dist0 = top_dist0.view(top_dist0.shape[0], -1, 14)[:, :, 1:]
+
+        # -- post-process [inds] --
+        np = top_inds0.shape[0]
+        top_ind0 +=  pp * torch.arange(np,device=image_n0.device).view(-1, 1, 1, 1)
+
+        # -- post-process [dists] --
+        pn = patch_numel
+        patch_dist0 = top_dist0.view(np, -1, 14)[:, :, 1:]
+        patch_var0 = im_patches_n0[:, :, 0, :].std(dim=-1).unsqueeze(-1).pow(2) * pn
+        patch_dist0 = torch.cat((patch_dist0, patch_var0), dim=-1)
+
+        #
+        # -- get patches --
+        #
 
         im_patches_n0 = unfold(image_n0, (self.patch_w, self.patch_w)).transpose(1, 0)\
             .contiguous().view(patch_numel, -1).t()
         im_patches_n0 = im_patches_n0[top_ind0.view(-1), :].view(top_ind0.shape[0], -1, 14, patch_numel)
 
-        patch_var0 = im_patches_n0[:, :, 0, :].std(dim=-1).unsqueeze(-1).pow(2) * patch_numel
-        patch_dist0 = torch.cat((patch_dist0, patch_var0), dim=-1)
 
+
+        # -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+        #
+        #             kNN Image [Scale = 2]
+        #
+        # -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+
+        # -- prepare image for search --
         image_n1 = self.pad_crop1(image_n, train, 'reflect')
         im_n1_b, im_n1_c, im_n1_h, im_n1_w = image_n1.shape
-        image_n1 = self.bilinear_conv(image_n1.view(im_n1_b * im_n1_c, 1, im_n1_h, im_n1_w))\
+        image_n1 = self.bilinear_conv(image_n1.view(im_n1_b * im_n1_c, 1,
+                                                    im_n1_h, im_n1_w))\
             .view(im_n1_b, im_n1_c, im_n1_h - 2, im_n1_w - 2)
         image_n1 = self.pad_crop1(image_n1, train, 'constant')
+        if self.arch_opt.rgb: image_for_nn1 = self.rgb2gray(image_n1)
+        else: image_for_nn1 = image_n1
 
-        im_params1 = get_image_params(image_n1, 2 * self.patch_w - 1, 28)
-        im_params1['pad_patches_w_full'] = im_params1['pad_patches_w']
-
-        # -- convert search image  --
-        if self.arch_opt.rgb:
-            image_for_nn1 = self.rgb2gray(image_n1)
-        else:
-            image_for_nn1 = image_n1
-
-        # -- use input if exists --
-        if not(srch_img is None):
-            # print("image_n1.shape: ",image_n1.shape)
-            # print("src_img.shape: ",srch_img.shape)
-            # image_for_nn1 = self.rgb2gray(srch_img)
-            srch_img_n1 = self.pad_crop1(srch_img, train, 'reflect')
-            im_n1_b, im_n1_c, im_n1_h, im_n1_w = srch_img_n1.shape
-            a,b,c,d = im_n1_b * im_n1_c, 1, im_n1_h, im_n1_w
-            srch_img_n1 = self.bilinear_conv(srch_img_n1.view(a,b,c,d))\
-                           .view(im_n1_b, im_n1_c, im_n1_h - 2, im_n1_w - 2)
-            srch_img_n1 = self.pad_crop1(srch_img_n1, train, 'constant')
-            image_for_nn1 = self.rgb2gray(srch_img_n1)
-
-        # -- assignment --
-        image_for_nn1_00 = image_for_nn1[:, :, 0::2, 0::2].clone()
-        image_for_nn1_10 = image_for_nn1[:, :, 1::2, 0::2].clone()
-        image_for_nn1_01 = image_for_nn1[:, :, 0::2, 1::2].clone()
-        image_for_nn1_11 = image_for_nn1[:, :, 1::2, 1::2].clone()
-        # save_image(image_n1,"image_n1")
-        # save_image(image_for_nn1,"img_for_nn1")
-        # print(image_for_nn1_00.shape)
-        # print(image_for_nn1_10.shape)
-        # print(image_for_nn1_01.shape)
-        # print(image_for_nn1_11.shape)
-        save_image(image_for_nn1_00,"img_for_nn1_00")
-        save_image(image_for_nn1_10,"img_for_nn1_10")
-        diff_00_01 = image_for_nn1_00-image_for_nn1_10
-        diff_00_01 = th.abs(diff_00_01)
-        diff_00_01 -= diff_00_01.min()
-        diff_00_01 /= diff_00_01.max()
-        save_image(diff_00_01,"diff_00_01")
-        save_image(image_for_nn1_10,"img_for_nn1_10")
-
-        save_image(image_for_nn1_01,"img_for_nn1_01")
-        save_image(image_for_nn1_11,"img_for_nn1_11")
-
-
-        # -- get image --
-        im_params1_00 = get_image_params(image_for_nn1_00, self.patch_w, 14)
-        im_params1_10 = get_image_params(image_for_nn1_10, self.patch_w, 14)
-        im_params1_01 = get_image_params(image_for_nn1_01, self.patch_w, 14)
-        im_params1_11 = get_image_params(image_for_nn1_11, self.patch_w, 14)
-        im_params1_00['pad_patches_w_full'] = im_params1['pad_patches_w']
-        im_params1_10['pad_patches_w_full'] = im_params1['pad_patches_w']
-        im_params1_01['pad_patches_w_full'] = im_params1['pad_patches_w']
-        im_params1_11['pad_patches_w_full'] = im_params1['pad_patches_w']
-        top_dist1_00, top_ind1_00 = self.find_nn(image_for_nn1_00, im_params1_00, self.patch_w, scale=1, case='00')
-        # print("top_dist1_00.shape: ",top_dist1_00.shape)
-        # print("top_ind1_00.shape: ",top_ind1_00.shape)
-        top_dist1_10, top_ind1_10 = self.find_nn(image_for_nn1_10, im_params1_10, self.patch_w, scale=1, case='10')
-        top_dist1_01, top_ind1_01 = self.find_nn(image_for_nn1_01, im_params1_01, self.patch_w, scale=1, case='01')
-        top_dist1_11, top_ind1_11 = self.find_nn(image_for_nn1_11, im_params1_11, self.patch_w, scale=1, case='11')
-
-        top_dist1 = torch.zeros(im_params1['batches'], im_params1['patches_h'],
-                                im_params1['patches_w'], 14,
-                                device=image_n.device).fill_(float('nan'))
-        # print("top_dist1.shape: ",top_dist1.shape)
-        top_dist1[:, 0::2, 0::2, :] = top_dist1_00
-        top_dist1[:, 1::2, 0::2, :] = top_dist1_10
-        top_dist1[:, 0::2, 1::2, :] = top_dist1_01
-        top_dist1[:, 1::2, 1::2, :] = top_dist1_11
-        # print("top_dist1_00.shape: ",top_dist1_00.shape)
-
-        top_ind1 = im_params1['pad_patches'] * torch.ones(top_dist1.shape,
-                                                          dtype=torch.int64,
-                                                          device=image_n.device)
-        top_ind1[:, 0::2, 0::2, :] = top_ind1_00
-        top_ind1[:, 1::2, 0::2, :] = top_ind1_10
-        top_ind1[:, 0::2, 1::2, :] = top_ind1_01
-        top_ind1[:, 1::2, 1::2, :] = top_ind1_11
-
-        top_ind1 += im_params1['pad_patches'] * torch.arange(top_ind1.shape[0],
-                                                             device=image_n1.device).view(-1, 1, 1, 1)
-
+        # -- get   --
         im_patches_n1 = unfold(image_n1, (self.patch_w, self.patch_w),
                                dilation=(2, 2)).transpose(1, 0).contiguous().view(patch_numel, -1).t()
         im_patches_n1 = im_patches_n1[top_ind1.view(-1), :].view(top_ind1.shape[0], -1, 14, patch_numel)
@@ -996,22 +1035,23 @@ class NonLocalDenoiser(nn.Module):
         patch_var1 = im_patches_n1[:, :, 0, :].std(dim=-1).unsqueeze(-1).pow(2) * patch_numel
         patch_dist1 = torch.cat((patch_dist1, patch_var1), dim=-1)
 
-        # # print("patch_dist1.shape: ",patch_dist1.shape)
-        # save_image(patch_dist1,"patch_dist1")
-        # print("im_patches_n0.shape: ",im_patches_n0.shape)
-        # print("im_patches_n1.shape: ",im_patches_n1.shape)
-        # print("patch_dist0.shape: ",patch_dist0.shape)
-        # print("patch_dist1.shape: ",patch_dist1.shape)
-        # print("im_params0 ",im_params0)
-
+        # -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
         #
-        # -- denoising --
+        #                 Denoising
         #
+        # -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
         image_dn, patch_weights = self.patch_denoise_net(im_patches_n0, patch_dist0,
                                                          im_patches_n1, patch_dist1,
                                                          im_params0, im_params1,
                                                          save_memory, max_batch)
+
+        # -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+        #
+        #                 Post-Processing
+        #
+        # -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+
         # print("image_dn.shape: ",image_dn.shape)
         # print("patch_weights.shape: ",patch_weights.shape)
         image_dn = image_dn * patch_weights

@@ -29,30 +29,8 @@ def denoise(patches,bufs,args,noisy_means):
     update_dists(nlDists0,patches[levels[0]].noisy)
     update_dists(nlDists1,patches[levels[1]].noisy)
 
-    # -- save ex --
-    shape = (t,3,64,64)
-    _pnoisy = patches[levels[0]].noisy
-    _nlInds = nlInds0[:,:,0].view(-1,1,3)
-    _nlDists = th.ones_like(nlDists0)[:,:,0].view(-1,1)
-    dnoisy,wd = dnls.simple.gather.run(_pnoisy,_nlDists,_nlInds,shape=shape)
-    dnoisy /= wd
-    save_burst(dnoisy,"pre_dnoisy")
-
-    delta = th.sum((pnoisy0 - pnoisy1)**2).item()
-    print("delta: ",delta)
-    assert delta > 0.
-
-    # -- exec --
-    pmin,pmax,pmean = pnoisy0.min().item(),pnoisy0.max().item(),pnoisy0.mean().item()
-    print("pnoisy0[min,max]: ",pmin,pmax,pmean)
-    pmin,pmax,pmean = pnoisy1.min().item(),pnoisy1.max().item(),pnoisy1.mean().item()
-    print("pnoisy1[min,max]: ",pmin,pmax,pmean)
+    # -- exec deno --
     dnoisy = model(model,pnoisy0,nlDists0,nlInds0,pnoisy1,nlDists1,nlInds1)
-    print("dnoisy[min,max]: ",dnoisy.min().item(),dnoisy.max().item())
-    # print("weight[min,max]: ",weights.min().item(),weights.max().item())
-    # print(weights.shape)
-    print("dnoisy.shape: ",dnoisy.shape)
-    save_burst(dnoisy,"dnoisy")
 
     # -- rescale --
     print("noisy_means.shape: ",noisy_means.shape)

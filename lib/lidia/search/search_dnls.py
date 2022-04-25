@@ -5,12 +5,15 @@ from einops import rearrange,repeat
 from easydict import EasyDict as edict
 
 # -- [a required package] --
-import vpss
+# import vpss
 
 # -- local package --
 import lidia.search_mask as search_mask
 from lidia.utils.batching import view_batch
 from lidia.utils.logger import vprint
+
+# -- filtering --
+from torchvision.transforms.functional import pad as pad_fxn
 
 # -- search packages --
 import dnls
@@ -80,6 +83,8 @@ def search_and_fill(imgs,patches,bufs,srch_inds,flows,args):
     # srch_img = srch_img if (imgs.clean is None) else imgs.clean
 
     # -- color correct before search --
+    if args.dilation == 2:
+        srch_img = exec_filtering(srch_img,args.ps)
     srch_img = exec_rgb2gray(srch_img)
 
     # -- sim search block --
@@ -87,6 +92,7 @@ def search_and_fill(imgs,patches,bufs,srch_inds,flows,args):
     bufs.vals[...] = float("inf")
     vals,inds = dnls.simple.search.run(srch_img,srch_inds,flows,args.k,
                                        args.ps,args.pt,args.ws,args.wt,1,
+                                       stride=args.dilation,
                                        dilation=args.dilation)
     nq = vals.shape[0]
     bufs.vals[:nq,...] = vals[...]
@@ -117,13 +123,15 @@ def search_and_fill(imgs,patches,bufs,srch_inds,flows,args):
         imgs_k = rescale_img(imgs[key])
         if key == "noisy":
             imgs.means[...] = imgs_k.mean((-1,-2),keepdim=True)
-            print("imgs_k.shape: ",imgs_k.shape)
+            if args.dilation == 2:
+                img_k = exec_filtering(imgs_k,args.ps)
             imgs_k -= imgs.means
             print_stats("[search_dnls] noisy",imgs_k)
 
         # -- fill --
         pkey = dnls.simple.scatter.run(imgs_k,bufs.inds,
-                                       args.ps,args.pt,dilation=args.dilation)
+                                       args.ps,args.pt,
+                                       dilation=args.dilation)
         patches[key][...] = pkey[...]
 
 def exec_rgb2gray(image_rgb):
@@ -134,8 +142,6 @@ def exec_rgb2gray(image_rgb):
     rgb2gray.weight.requires_grad = False
     rgb2gray = rgb2gray.to(image_rgb.device)
     image_g = rgb2gray(image_rgb)
-    print("image_rgb.shape: ",image_rgb.shape)
-    print("image_g.shape: ",image_g.shape)
     return image_g
 
 def rescale_img(img):
@@ -146,4 +152,30 @@ def print_stats(name,tensor):
     imean = tensor.mean().item()
     label = "%s[min,max,mean]: " % name
     print(label,imin,imax,imean)
+
+def exec_filtering(vid,ps):
+    pad = 1
+    t,c,h,w = vid.shape
+    vid = pad_fxn(vid, [pad]*4, padding_mode='reflect')
+    vid = bilinear_conv(vid,h,w)
+    return vid
+
+def bilinear_conv(vid,h,w):
+
+    # -- create --
+    kernel_1d = th.tensor((1 / 4, 1 / 2, 1 / 4), dtype=th.float32)
+    kernel_2d = (kernel_1d.view(-1, 1) * kernel_1d).view(1, 1, 3, 3)
+    nn_bilinear_conv = th.nn.Conv2d(in_channels=1, out_channels=1,
+                                    kernel_size=(3, 3), bias=False)
+    nn_bilinear_conv.weight.data = kernel_2d
+    nn_bilinear_conv.weight.requires_grad = False
+    nn_bilinear_conv = nn_bilinear_conv.to(vid.device)
+
+    # -- exec --
+    t,c,_h,_w = vid.shape
+    vid = vid.view(t*c,1,_h,_w)
+    vid = nn_bilinear_conv(vid)
+    vid = vid.view(t,c,h,w)
+
+    return vid
 

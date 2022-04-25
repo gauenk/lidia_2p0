@@ -174,7 +174,7 @@ class Aggregation1(nn.Module):
 
     def forward(self, x, pixels_h, pixels_w):
         # print("[agg1:1] x.shape: ",x.shape)
-        print("[input] x.shape: ",x.shape)
+        print("[agg1.input] x.shape: ",x.shape)
         images, patches, hor_f, ver_f = x.shape
         x = x.permute(0, 2, 3, 1).view(images * hor_f, ver_f, patches)
         # print("[agg1:2] x.shape: ",x.shape)
@@ -223,9 +223,11 @@ class Aggregation1(nn.Module):
         x = x_v2
 
         x_b, x_c, x_h, x_w = x.shape
+        print("[modules] x_v2.shape: ",x.shape)
         x = self.bilinear_conv(nn_func.pad(x, [1] * 4, 'reflect').view(x_b * x_c, 1, x_h + 2, x_w + 2)) \
             .view(x_b, x_c, x_h, x_w)
         # x = unfold(x, (self.patch_w, self.patch_w), dilation=(1,1),padding=(2,2))
+        print("[modules] x.shape: ",x.shape)
         x = unfold(x, (self.patch_w, self.patch_w), dilation=(2, 2))
         x = x.view(images, hor_f, ver_f, patches).permute(0, 3, 1, 2)
 
@@ -368,13 +370,15 @@ class SeparableFcNet(nn.Module):
 
             # agg1
             y_out1 = self.ver_hor_agg1_pre(x1)
-            # print_extrema("[a] y_out1",y_out1)
+            print_extrema("[a] y_out1",y_out1)
             y_out1 = weights1 * self.agg1(y_out1 / weights1,
                                           im_params1['pixels_h'],
                                           im_params1['pixels_w'])
             # print_extrema("[b] y_out1",y_out1)
+            # print("[b] y_out1.shape",y_out1.shape)
             y_out1 = self.ver_hor_bn_re_agg1_post(y_out1)
             # print_extrema("[c] y_out1",y_out1)
+            # print("[c] y_out1.shape",y_out1.shape)
 
             # # agg0
             # y_out0 = self.ver_hor_agg0_pre(x0)
@@ -444,7 +448,8 @@ class PatchDenoiseNet(nn.Module):
         weighted_patches_n1 = patches_n1 * weights1
         weights1_first = weights1[:, :, 0:1, :]
 
-        noise = self.separable_fc_net(weighted_patches_n0, weighted_patches_n1, weights1_first,
+        noise = self.separable_fc_net(weighted_patches_n0, weighted_patches_n1,
+                                      weights1_first,
                                       im_params0, im_params1, save_memory, max_chunk)
 
         # print("patches_n0.shape: ",patches_n0.shape)
@@ -501,7 +506,7 @@ class NonLocalDenoiser(nn.Module):
                 # print("cv2d.shape: ",cv2d.shape)
                 # dist_rc = th.sum((y_shift - y)**2,dim=(1))
                 # top_dist[:, :, :, lin_ind] = dist_rc[:,2:-2,2:-2]
-                top_dist[:, :, :, lin_ind] = conv2d((y_shift - y) ** 2,\
+                top_dist[:, :, :, lin_ind] = conv2d(((y_shift - y)) ** 2,\
                                                     dist_filter).squeeze(1)
 
         # print(top_dist[0,16,16,:])
@@ -569,7 +574,7 @@ class NonLocalDenoiser(nn.Module):
         im_params0['pad_patches_w_full'] = im_params0['pad_patches_w']
 
         # -- run knn search --
-        top_dist0, top_ind0 = self.find_nn(img_nn0/255., im_params0, self.patch_w)
+        top_dist0, top_ind0 = self.find_nn(img_nn0, im_params0, self.patch_w)
 
         # -- prepare [dists,inds] --
         ip = im_params0['pad_patches']
@@ -682,12 +687,13 @@ class NonLocalDenoiser(nn.Module):
         im_patches_n1 = unfold(image_n1, (self.patch_w, self.patch_w),
                                dilation=(2, 2)).transpose(1, 0).contiguous().\
                                view(patch_numel, -1).t()
-        print("im_patches_n1.shape: ",im_patches_n1.shape)
+        print("[modules] im_patches_n1.shape: ",im_patches_n1.shape)
 
         # -- organize by knn --
         np = top_ind1.shape[0]
         pn = patch_numel
         im_patches_n1 = im_patches_n1[top_ind1.view(-1), :].view(np, -1, 14, pn)
+        print("[modules] im_patches_n1.shape: ",im_patches_n1.shape)
 
         # -- append anchor patch spatial variance --
         # patch_dist1 = top_dist1.view(top_dist1.shape[0], -1, 14)[:, :, 1:]
@@ -704,6 +710,10 @@ class NonLocalDenoiser(nn.Module):
         hp,wp = _h-2*pad,_w-2*pad
         top_ind1 = get_3d_inds(top_ind1,hp,wp)
 
+        # -- rescale inds --
+        top_ind1[...,1] -= 28
+        top_ind1[...,2] -= 28
+
         # -- re-shaping --
         t,h,w,k = top_dist1.shape
         top_ind1 = rearrange(top_ind1,'(t h w) k tr -> t h w k tr',t=t,h=h)
@@ -716,22 +726,11 @@ class NonLocalDenoiser(nn.Module):
                       srch_img=None, srch_flows=None):
 
         patch_numel = (self.patch_w ** 2) * image_n.shape[1]
-
-        print_extrema("image_n",image_n)
         image_n0 = self.pad_crop0(image_n, self.pad_offs, train)
-        print_extrema("image_n0",image_n0)
         if self.arch_opt.rgb:
             image_for_nn0 = self.rgb2gray(image_n0)
         else:
             image_for_nn0 = image_n0
-        # print("image_for_nn0.shape: ",image_for_nn0.shape)
-        # print("[input image] [image_for_nn0].shape: ",image_for_nn0.shape)
-        imin,imax = image_n0.min().item(),image_n0.max().item()
-        imean = image_n0.mean().item()
-        # print("[image_n0][min,max,mean]: ",imin,imax,imean)
-        imin,imax = image_for_nn0.min().item(),image_for_nn0.max().item()
-        imean = image_for_nn0.mean().item()
-        # print("[image_for_nn0.shape][min,max,mean]: ",imin,imax,imean)
 
         im_params0 = get_image_params(image_n0, self.patch_w, 14)
         im_params0['pad_patches_w_full'] = im_params0['pad_patches_w']
@@ -740,42 +739,26 @@ class NonLocalDenoiser(nn.Module):
                                                              device=image_n0.device).view(-1, 1, 1, 1)
         patch_dist0 = top_dist0.view(top_dist0.shape[0], -1, 14)[:, :, 1:]
 
-        print("image_n0.shape: ",image_n0.shape)
-        # print("[NlDeno.denoise_image]: image_n0.shape: ",image_n0.shape)
         im_patches_n0 = unfold(image_n0, (self.patch_w, self.patch_w)).transpose(1, 0)\
             .contiguous().view(patch_numel, -1).t()
-        print_extrema("[unfold] im_patches_n0",im_patches_n0)
-        # print("[NlDeno.denoise_image]: im_patches_n0.shape: ",im_patches_n0.shape)
         im_patches_n0 = im_patches_n0[top_ind0.view(-1), :].view(top_ind0.shape[0], -1, 14, patch_numel)
-        print_extrema("[topk] im_patches_n0",im_patches_n0)
-
-        patch_var0 = im_patches_n0[:, :, 0, :].std(dim=-1).unsqueeze(-1).pow(2) * patch_numel
+        patch_var0 = im_patches_n0[:, :, 0, :].\
+            std(dim=-1).unsqueeze(-1).pow(2) * patch_numel
         patch_dist0 = th.cat((patch_dist0, patch_var0), dim=-1)
-        # print(patch_dist0[...,0])
-
-        # print(train)
-        # print("image_n.shape: ",image_n.shape)
         image_n1 = self.pad_crop1(image_n, train, 'reflect')
-        # print("[post pad] image_n1.shape: ",image_n1.shape)
         im_n1_b, im_n1_c, im_n1_h, im_n1_w = image_n1.shape
-        image_n1 = self.bilinear_conv(image_n1.view(im_n1_b * im_n1_c, 1, im_n1_h, im_n1_w))\
+        image_n1 = self.bilinear_conv(image_n1.view(im_n1_b * im_n1_c, 1,
+                                                    im_n1_h, im_n1_w))\
             .view(im_n1_b, im_n1_c, im_n1_h - 2, im_n1_w - 2)
-        save_image(image_n1,"image_n1_posconv")
-        # print("[post conv] image_n1.shape: ",image_n1.shape)
         image_n1 = self.pad_crop1(image_n1, train, 'constant')
-        # print("[post pad_crop] image_n1.shape: ",image_n1.shape)
 
+        # -- params --
         im_params1 = get_image_params(image_n1, 2 * self.patch_w - 1, 28)
         im_params1['pad_patches_w_full'] = im_params1['pad_patches_w']
 
         # -- convert search image  --
-        if self.arch_opt.rgb:
-            img_nn1 = self.rgb2gray(image_n1)
-        else:
-            img_nn1 = image_n1
-        imin,imax = image_n1.min().item(),image_n1.max().item()
-        imean = image_n1.mean().item()
-        # print("[image_n1.shape][min,max,mean]: ",imin,imax,imean)
+        if self.arch_opt.rgb: img_nn1 = self.rgb2gray(image_n1)
+        else: img_nn1 = image_n1
 
         # -- assignment --
         img_nn1_00 = img_nn1[:, :, 0::2, 0::2].clone()
@@ -830,32 +813,12 @@ class NonLocalDenoiser(nn.Module):
         im_patches_n1 = unfold(image_n1, (self.patch_w, self.patch_w),
                                dilation=(2, 2)).transpose(1, 0).contiguous().\
                                view(patch_numel, -1).t()
-        # print("patch_numel: ",patch_numel)
-        # print("im_patches_n1.shape: ",im_patches_n1.shape)
-        # _t,_c,_h,_w = image_n1.shape
-        # inds1 = get_3d_inds(top_ind1,_h,_w)
-        # print(inds1)
-        # print("T: ",inds1[:,:,0].min().item(),inds1[:,:,0].max().item())
-        # print("H: ",inds1[:,:,1].min().item(),inds1[:,:,1].max().item())
-        # print("W: ",inds1[:,:,2].min().item(),inds1[:,:,2].max().item())
-        # print("inds1.shape: ",inds1.shape)
 
         im_patches_n1 = im_patches_n1[top_ind1.view(-1), :].\
             view(top_ind1.shape[0], -1, 14, patch_numel)
-        # print("image_n1.shape: ",image_n1.shape)
-        # ims = dnls.simple.scatter.run(image_n1,inds1,5,1,dilation=1)
-        # ims = rearrange(ims,'(t p) k 1 c h w -> t p k (c h w)',t=5)
-        # print("ims.shape: ",ims.shape)
-        # print("im_patches_n1.shape: ",im_patches_n1.shape)
-        # print(ims[0,0,0])
-        # print(im_patches_n1[0,0,0])
-        # delta = th.sum((ims[0,0,0] - im_patches_n1[0,0,0])**2).item()
-        # print("delta: ",delta)
-        # exit(0)
-
         patch_dist1 = top_dist1.view(top_dist1.shape[0], -1, 14)[:, :, 1:]
-        # print("im_patches_n1.shape: ",im_patches_n1.shape)
-        patch_var1 = im_patches_n1[:, :, 0, :].std(dim=-1).unsqueeze(-1).pow(2) * patch_numel
+        patch_var1 = im_patches_n1[:, :, 0, :].std(dim=-1).\
+            unsqueeze(-1).pow(2) * patch_numel
 
         # print("[pre cat] patch_dist1.shape: ",patch_dist1.shape)
         patch_dist1 = th.cat((patch_dist1, patch_var1), dim=-1)
@@ -871,20 +834,6 @@ class NonLocalDenoiser(nn.Module):
         #
         # -- denoising --
         #
-
-        ip0 = im_patches_n0
-        imin,imax,imean = ip0.min().item(),ip0.max().item(),ip0.mean().item()
-        # print("[im_patches_n0][min,max,mean]: ",imin,imax,imean)
-
-        ip1 = im_patches_n1
-        imin,imax,imean = ip1.min().item(),ip1.max().item(),ip1.mean().item()
-        # print("[im_patches_n1][min,max,mean]: ",imin,imax,imean)
-        # print("im_patches_n1.shape: ",im_patches_n1.shape)
-        imn1 = im_patches_n1[:,:,0].transpose(2,1).contiguous()
-        # print("imn1.shape: ",imn1.shape)
-        imn1 = fold(imn1,(68,68),(5,5),dilation=(1,1),padding=(2,2))
-        # print("imn1.shape: ",imn1.shape)
-        # save_burst(imn1,"imn1")
 
         print_extrema("im_patches_n0",im_patches_n0)
         print_extrema("im_patches_n1",im_patches_n1)
