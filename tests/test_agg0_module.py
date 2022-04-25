@@ -46,12 +46,9 @@ def run_rgb2gray(tensor):
 
 def run_rgb2gray_patches(patches,ps):
     t,h,w,k,d = patches.shape
-    print("patches.shape: ",patches.shape)
     patches = rearrange(patches,'t h w k (c ph pw) -> (t h w k) c ph pw',ph=ps,pw=ps)
     patches = run_rgb2gray(patches)
-    print("[post-rgb] patches.shape: ",patches.shape)
     patches = rearrange(patches,'(t h w k) 1 ph pw -> t h w k (ph pw)',t=t,h=h,w=w)
-    print("patches.shape: ",patches.shape)
     return patches
 
 #

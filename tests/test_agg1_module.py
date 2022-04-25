@@ -44,6 +44,13 @@ def run_rgb2gray(tensor):
     tensor = rgb2gray(tensor)
     return tensor
 
+def run_rgb2gray_patches(patches,ps):
+    t,h,w,k,d = patches.shape
+    patches = rearrange(patches,'t h w k (c ph pw) -> (t h w k) c ph pw',ph=ps,pw=ps)
+    patches = run_rgb2gray(patches)
+    patches = rearrange(patches,'(t h w k) 1 ph pw -> t h w k (ph pw)',t=t,h=h,w=w)
+    return patches
+
 
 #
 #
@@ -81,7 +88,8 @@ class TestLidiaDenoiseRgb(unittest.TestCase):
         device = "cuda:0"
 
         # -- exec --
-        self.run_nonlocal1_lidia_search(name,sigma,device)
+        # self.run_nonlocal1_lidia_search(name,sigma,device)
+        self.run_nonlocal1_dnls_search(name,sigma,device)
 
     def run_nonlocal1_lidia_search(self,name,sigma,device):
 
@@ -146,3 +154,78 @@ class TestLidiaDenoiseRgb(unittest.TestCase):
         error = error.sum().item()
         assert error < 1e-10
 
+
+    def run_nonlocal1_dnls_search(self,name,sigma,device):
+
+        # -- get data --
+        ps = 5
+        clean = self.load_burst(name).to(device)
+        noisy = clean + sigma * th.randn_like(clean)
+        t,c,h,w = clean.shape
+        im_shape = noisy.shape
+
+        # -- load model --
+        model_ntire = get_lidia_model_ntire(device,im_shape,sigma)
+        model_nl = get_lidia_model_nl(device,im_shape,sigma)
+
+        # -- exec ntire search  --
+        ntire_output = model_ntire.run_nn1(noisy)
+        ntire_patches = ntire_output[0]
+        ntire_dists = ntire_output[1]
+        ntire_inds = ntire_output[2]
+
+        # -- exec nl search  --
+        nl_output = model_nl.run_nn1_lidia_search(noisy)
+        nl_patches = nl_output[0]
+        nl_dists = nl_output[1]
+        nl_inds = nl_output[2]
+
+        #
+        # -- Viz and Prints --
+        #
+
+        print("nl_dists.shape: ",nl_dists.shape)
+        print("ntire_dists.shape: ",ntire_dists.shape)
+        print("nl_inds.shape: ",nl_inds.shape)
+        print("ntire_inds.shape: ",ntire_inds.shape)
+        print(nl_inds[0,16,16])
+        print(ntire_inds[0,16,16])
+        print(nl_dists[0,16,16])
+        print(ntire_dists[0,16,16])
+
+        print("-"*20)
+        print("-"*20)
+        print(ntire_patches[0,16,16,0])
+        print(nl_patches[0,16,16,0])
+        print("-"*20)
+        print("-"*20)
+
+        #
+        # -- Comparisons --
+        #
+
+        """
+        We can't do direct comparisons because equal dist
+        locations may be swapped.
+        """
+
+        # -- dists  --
+        error = (ntire_dists - nl_dists)**2
+        error = error.sum().item()
+        assert error < 1e-8
+
+        # -- [nl] patch-based dists == dist --
+        nl_patches = run_rgb2gray_patches(nl_patches,ps)
+        dists = (nl_patches - nl_patches[...,[0],:])**2
+        nl_pdists = th.sum(dists,-1)
+        error = ((nl_pdists - nl_dists)/(255.**2))**2
+        error = error.sum().item()
+        assert error < 1e-8
+
+        # -- [ntire] patch-based dists == dist --
+        ntire_patches = run_rgb2gray_patches(ntire_patches,ps)
+        dists = (ntire_patches - ntire_patches[...,[0],:])**2
+        ntire_pdists = th.sum(dists,-1)
+        error = ((ntire_pdists - ntire_dists)/(255.**2))**2
+        error = error.sum().item()
+        assert error < 1e-8
