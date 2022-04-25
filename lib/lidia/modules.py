@@ -611,6 +611,9 @@ class NonLocalDenoiser(nn.Module):
 
     def run_nn1(self,image_n,train=False):
 
+        # -- misc unpack --
+        ps = self.patch_w
+
         # -- pad & unpack --
         patch_numel = (self.patch_w ** 2) * image_n.shape[1]
         device = image_n.device
@@ -679,18 +682,35 @@ class NonLocalDenoiser(nn.Module):
         im_patches_n1 = unfold(image_n1, (self.patch_w, self.patch_w),
                                dilation=(2, 2)).transpose(1, 0).contiguous().\
                                view(patch_numel, -1).t()
+        print("im_patches_n1.shape: ",im_patches_n1.shape)
 
         # -- organize by knn --
         np = top_ind1.shape[0]
         pn = patch_numel
         im_patches_n1 = im_patches_n1[top_ind1.view(-1), :].view(np, -1, 14, pn)
-        patch_dist1 = top_dist1.view(top_dist1.shape[0], -1, 14)[:, :, 1:]
 
         # -- append anchor patch spatial variance --
-        patch_var1 = im_patches_n1[:, :, 0, :].std(dim=-1).unsqueeze(-1).pow(2) * pn
-        patch_dist1 = th.cat((patch_dist1, patch_var1), dim=-1)
+        # patch_dist1 = top_dist1.view(top_dist1.shape[0], -1, 14)[:, :, 1:]
+        # patch_var1 = im_patches_n1[:, :, 0, :].std(dim=-1).unsqueeze(-1).pow(2) * pn
+        # patch_dist1 = th.cat((patch_dist1, patch_var1), dim=-1)
 
-        return im_patches_n1,top_dist1,top_ind1
+        #
+        # -- Final Formatting --
+        #
+
+        # -- inds -> 3d_inds --
+        pad = 2*(ps//2) # dilation "= 2"
+        _t,_c,_h,_w = image_n1.shape
+        hp,wp = _h-2*pad,_w-2*pad
+        top_ind1 = get_3d_inds(top_ind1,hp,wp)
+
+        # -- re-shaping --
+        t,h,w,k = top_dist1.shape
+        top_ind1 = rearrange(top_ind1,'(t h w) k tr -> t h w k tr',t=t,h=h)
+        ip1 = im_patches_n1
+        ip1 = rearrange(ip1,'t (h w) k d -> t h w k d',h=h)
+
+        return ip1,top_dist1,top_ind1
 
     def denoise_image(self, image_n, train, save_memory, max_batch,
                       srch_img=None, srch_flows=None):
