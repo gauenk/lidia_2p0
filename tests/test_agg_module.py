@@ -21,8 +21,8 @@ from einops import rearrange,repeat
 
 # -- package imports [to test] --
 import lidia
-from lidia import denoise_nl
-from lidia import denoise_ntire2020
+from lidia.model_io import get_lidia_model as get_lidia_model_ntire
+from lidia.nl_model_io import get_lidia_model as get_lidia_model_nl
 from lidia.data import save_burst
 
 # -- check if reordered --
@@ -32,6 +32,17 @@ DATA_DIR = Path("./data/")
 SAVE_DIR = Path("./output/tests/")
 if not SAVE_DIR.exists():
     SAVE_DIR.mkdir(parents=True)
+
+
+def run_rgb2gray(tensor):
+    kernel = th.tensor([0.2989, 0.5870, 0.1140], dtype=th.float32)
+    kernel = kernel.view(1, 3, 1, 1)
+    rgb2gray = th.nn.Conv2d(in_channels=3,out_channels=1,kernel_size=(1, 1),bias=False)
+    rgb2gray.weight.data = kernel
+    rgb2gray.weight.requires_grad = False
+    rgb2gray = rgb2gray.to(tensor.device)
+    tensor = rgb2gray(tensor)
+    return tensor
 
 
 #
@@ -63,62 +74,282 @@ class TestLidiaDenoiseRgb(unittest.TestCase):
         burst = th.from_numpy(burst).type(th.float32)
         return burst
 
-    def format_patches(self,clean,noisy,npatches,color,ps):
+    @unittest.skip
+    def test_nonlocal1(self):
+        # -- params --
+        name = "davis_baseball_64x64"
+        sigma = 50.
+        device = "cuda:0"
 
-        # -- init --
-        device = clean.device
-        patches = th.randn((npatches,ps,ps),device=device)
+        # -- exec --
+        self.run_nonlocal1_test(name,sigma,device)
 
-        # -- fill center with name --
-        psMid = ps//2
-        patches[...] = 0.
-        patches[:,psMid,psMid] = th.arange(npatches,device=device)#/npatches
 
-        # -- repeat --
-        patches = repeat(patches,'n h w -> n c h w',c=color)
-
-        return patches
-
-    def exec_agg_module_test(self,name,sigma,device="cuda:0"):
+    def run_nonlocal1_test(self,name,sigma,device):
 
         # -- get data --
         clean = self.load_burst(name).to(device)
         noisy = clean + sigma * th.randn_like(clean)
         t,c,h,w = clean.shape
+        im_shape = noisy.shape
 
-        # -- get patches --
-        npatches,color,ps = 4624,3,5
-        patches = self.format_patches(clean,noisy,npatches,color,ps)
+        # -- load model --
+        model_ntire = get_lidia_model_ntire(device,im_shape,sigma)
+        model_nl = get_lidia_model_nl(device,im_shape,sigma)
 
-        # -- create layers --
-        agg0_layer = lidia.modules.Aggregation0(ps)
-        agg0inds_layer = lidia.nl_modules.AggregationInds(ps)
+        # -- exec ntire search  --
+        ntire_output = model_ntire.run_nn1(noisy)
+        ntire_patches = ntire_output[0]
+        ntire_dists = ntire_output[1]
+        ntire_inds = ntire_output[2]
 
-        # -- exec fwds --
-        s,e = 72*30,72*32
-        psMid = ps//2
-        print(patches[s:e,0,psMid,psMid])
-        patches = rearrange(patches,'n c h w -> 1 n 1 (c h w)')
-        agg0_out = agg0_layer.forward2fold(patches,h+8,w+8)
-        print(agg0_out[0,0,:5,:5])#*100.)
-        print(agg0_out[0,0,30:32])#*100.)
-        print(agg0_out[0,0,30:32,30:32])
-        print(agg0_out.max(),agg0_out.min())
-        agg0_out /= agg0_out.max()
-        print("agg0_out.shape: ",agg0_out.shape)
-        save_burst(agg0_out,SAVE_DIR,"agg0_out")
+        # -- exec nl search  --
+        nl_output = model_nl.run_nn1(noisy)
+        nl_patches = nl_output[0]
+        nl_dists = nl_output[1]
+        nl_inds = nl_output[2]
 
-        agg0inds_out = agg0inds_layer(patches,h+8,w+8)
-        # print("agg0inds_out.shape: ",agg0inds_out.shape)
-        # save_burst(agg0inds_out,SAVE_DIR,"agg0inds_out")
+        #
+        # -- Viz --
+        #
+
+        #
+        # -- Comparisons --
+        #
+
+        # -- patches  --
+        error = (ntire_patches[:,:,:] - nl_patches[:,:,:])**2
+        error = error.sum().item()
+        assert error < 1e-10
+
+        # -- dists  --
+        error = (ntire_dists - nl_dists)**2
+        error = error.sum().item()
+        assert error < 1e-10
+
+        # -- inds  --
+        error = (ntire_inds - nl_inds)**2
+        error = error.sum().item()
+        assert error < 1e-10
+
+    # @unittest.skip("testing nl1")
+    def test_nonlocal0(self):
+        # -- params --
+        name = "davis_baseball_64x64"
+        sigma = 50.
+        device = "cuda:0"
+
+        # -- set seed --
+        seed = 123
+        th.manual_seed(seed)
+        np.random.seed(seed)
+
+        # -- exec --
+        # self.run_nonlocal0_lidia_search(name,sigma,device)
+        self.run_nonlocal0_dnls_search(name,sigma,device)
+
+    def run_nonlocal0_lidia_search(self,name,sigma,device):
+
+        # -- get data --
+        clean = self.load_burst(name).to(device)
+        noisy = clean + sigma * th.randn_like(clean)
+        t,c,h,w = clean.shape
+        im_shape = noisy.shape
+
+        # -- load model --
+        model_ntire = get_lidia_model_ntire(device,im_shape,sigma)
+        model_nl = get_lidia_model_nl(device,im_shape,sigma)
+
+        # -- exec ntire search  --
+        ntire_output = model_ntire.run_nn0(noisy)
+        ntire_patches = ntire_output[0]
+        ntire_dists = ntire_output[1]
+        ntire_inds = ntire_output[2]
+
+        # -- exec nl search  --
+        nl_output = model_nl.run_nn0_lidia_search(noisy)
+        nl_patches = nl_output[0]
+        nl_dists = nl_output[1]
+        nl_inds = nl_output[2]
+
+        #
+        # -- Viz and Prints --
+        #
+
+        print("nl_dists.shape: ",nl_dists.shape)
+        print("ntire_dists.shape: ",ntire_dists.shape)
+        print("nl_inds.shape: ",nl_inds.shape)
+        print("ntire_inds.shape: ",ntire_inds.shape)
+        print(nl_inds[0,16,16])
+        print(ntire_inds[0,16,16])
+        print(nl_dists[0,16,16])
+        print(ntire_dists[0,16,16])
 
 
-        # -- compare --
-        error_vals = th.sum((agg0_out - agg0inds_out)**2).item()
-        assert error_vals < 1e-10
+        print("-"*20)
+        print("-"*20)
+        print(ntire_patches[0,16,16,0])
+        print(nl_patches[0,16,16,0])
+        print("-"*20)
+        print("-"*20)
 
-    def test_agg_module(self):
+        #
+        # -- Comparisons --
+        #
 
-        # -- test 1 --
-        name,sigma = "davis_baseball_64x64",50.
-        self.exec_agg_module_test(name,sigma)
+        # -- patches  --
+        error = (ntire_patches[:,:,:] - nl_patches[:,:,:])**2
+        error = error.sum().item()
+        assert error < 1e-10
+
+        # -- dists  --
+        error = (ntire_dists - nl_dists)**2
+        error = error.sum().item()
+        assert error < 1e-10
+
+        # -- inds  --
+        error = (ntire_inds - nl_inds)**2
+        error = error.sum().item()
+        assert error < 1e-10
+
+    def run_nonlocal0_dnls_search(self,name,sigma,device):
+
+        # -- get data --
+        clean = self.load_burst(name).to(device)
+        noisy = clean + sigma * th.randn_like(clean)
+        t,c,h,w = clean.shape
+        im_shape = noisy.shape
+
+        # -- load model --
+        model_ntire = get_lidia_model_ntire(device,im_shape,sigma)
+        model_nl = get_lidia_model_nl(device,im_shape,sigma)
+
+        # -- exec ntire search  --
+        ntire_output = model_ntire.run_nn0(noisy)
+        ntire_patches = ntire_output[0]
+        ntire_dists = ntire_output[1]
+        ntire_inds = ntire_output[2]
+
+        # -- exec nl search  --
+        nl_output = model_nl.run_nn0_dnls_search(noisy)
+        nl_patches = nl_output[0]
+        nl_dists = nl_output[1]
+        nl_inds = nl_output[2]
+
+        #
+        # -- Viz Comparison --
+        #
+
+        print("dists [nl,ntire]")
+        print("[nl]: ",nl_dists[0,31,31])
+        print("[ntire]: ",ntire_dists[0,31,31])
+
+        print("inds [nl,ntire]")
+        print("[nl]: ",nl_inds[0,31,31])
+        print("[ntire]: ",ntire_inds[0,31,31])
+
+
+        # print("nl_dists.shape: ",nl_dists.shape)
+        # print("ntire_dists.shape: ",ntire_dists.shape)
+        # print("nl_inds.shape: ",nl_inds.shape)
+        # print("ntire_inds.shape: ",ntire_inds.shape)
+        # print(nl_inds[0,0,0,0])
+        # print(ntire_inds[0,0,0,0])
+        # print(nl_inds[0,-1,-1,0])
+        # print(ntire_inds[0,-1,-1,0])
+
+
+        p0 = ntire_patches[0,31,31,0].view(1,3,5,5)
+        p1 = ntire_patches[0,31,31,1].view(1,3,5,5)
+        print("p0.shape: ",p0.shape)
+        print("p1.shape: ",p1.shape)
+        print(p0)
+        print(p1)
+        p0_gray = run_rgb2gray(p0)/255.
+        p1_gray = run_rgb2gray(p1)/255.
+        dist = th.sum((p0_gray - p1_gray)**2).item()
+        print("[ntire] Dist: ",dist)
+
+        print("nl_patches.shape: ",nl_patches.shape)
+        p0 = nl_patches[0,31,31,0].view(1,3,5,5)
+        p1 = nl_patches[0,31,31,1].view(1,3,5,5)
+        print(p0)
+        print(p1)
+        print("p0.shape: ",p0.shape)
+        print("p1.shape: ",p1.shape)
+        p0_gray = run_rgb2gray(p0)/255.
+        p1_gray = run_rgb2gray(p1)/255.
+        dist = th.sum((p0_gray - p1_gray)**2).item()
+        print("[nl] Dist: ",dist)
+
+
+        ti = 3
+
+        delta = th.sum((ntire_patches[ti]/255. - nl_patches[ti]/255.)**2,dim=-1)
+        print("delta.shape: ",delta.shape)
+        delta = repeat(delta,'h w k -> k c h w',c=3)
+        print("delta.shape: ",delta.shape)
+        save_burst(delta,"./output/tests/agg","delta_p")
+
+        delta = (ntire_inds[ti] - nl_inds[ti])**2
+        delta = th.mean(delta.type(th.float),dim=-1)
+        print("delta.shape: ",delta.shape)
+        delta = repeat(delta,'h w k -> k c h w',c=3)
+        print("delta.shape: ",delta.shape)
+        save_burst(delta,"./output/tests/agg","delta_i")
+
+
+        # print("-"*20)
+        # print("-"*20)
+
+        # print(ntire_patches[0,0,0,0])
+        # print(nl_patches[0,0,0,0])
+
+        # print("-"*20)
+        # print("-"*20)
+
+        # print(ntire_patches[0,0,0,1])
+        # print(nl_patches[0,0,0,1])
+
+        # print("-"*20)
+        # print("-"*20)
+
+
+        # print("inds [nl,ntire]")
+        # print(nl_inds[0,31,31])
+        # print(ntire_inds[0,31,31])
+
+        # print("-- spatial dists --")
+        # print(nl_dists[0,8:15,8:15,1])
+        # print(ntire_dists[0,8:15,8:15,1])
+        # print(nl_dists[0,15:22,15:22,1])
+        # print(ntire_dists[0,15:22,15:22,1])
+        # print("-"*20)
+
+        # print(ntire_patches[0,31,31,0])
+        # print(nl_patches[0,31,31,0])
+
+        # print(ntire_patches[0,10,10,0])
+        # print(nl_patches[0,10,10,0])
+
+        # print("nl_patches.shape: ",nl_patches.shape)
+
+        #
+        # -- Comparisons --
+        #
+
+        # -- patches  --
+        error = (ntire_patches[:,:,:,:] - nl_patches[:,:,:,:])**2
+        error = error.sum().item()
+        assert error < 1e-10
+
+        # -- dists  --
+        error = (ntire_dists - nl_dists)**2
+        error = error.sum().item()
+        assert error < 1e-10
+
+        # -- inds  --
+        error = (ntire_inds - nl_inds)**2
+        error = error.sum().item()
+        assert error < 1e-10
+

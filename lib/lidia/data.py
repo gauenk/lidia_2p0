@@ -7,6 +7,9 @@ from einops import rearrange,repeat
 # -- vision --
 from PIL import Image
 
+# -- paths --
+from pathlib import Path
+
 
 def save_burst(burst,path,name):
     # -- append burst dim --
@@ -14,12 +17,17 @@ def save_burst(burst,path,name):
         burst = burst[None,:]
     assert burst.dim() == 4,"must be 4-dims"
 
+    # -- create path --
+    if isinstance(path,str):
+        path = Path(path)
+        if not path.exists():
+            path.mkdir()
+
     # -- save each frame --
     nframes = burst.shape[0]
     for t in range(nframes):
         img_t = burst[t]
         fn_t = str(path / ("%s_%05d.png" % (name,t)))
-        print(fn_t,img_t.min().item(),img_t.max().item())
         save_image(img_t,fn_t)
 
 def save_image(image,path):

@@ -6,7 +6,7 @@ from lidia.model_io import get_default_opt
 import dnls
 from lidia.nl_modules import save_image,save_burst
 
-def denoise(patches,bufs,args):
+def denoise(patches,bufs,args,noisy_means):
 
     # -- get model --
     model = args.lidia_model
@@ -43,12 +43,21 @@ def denoise(patches,bufs,args):
     assert delta > 0.
 
     # -- exec --
+    pmin,pmax,pmean = pnoisy0.min().item(),pnoisy0.max().item(),pnoisy0.mean().item()
+    print("pnoisy0[min,max]: ",pmin,pmax,pmean)
+    pmin,pmax,pmean = pnoisy1.min().item(),pnoisy1.max().item(),pnoisy1.mean().item()
+    print("pnoisy1[min,max]: ",pmin,pmax,pmean)
     dnoisy = model(model,pnoisy0,nlDists0,nlInds0,pnoisy1,nlDists1,nlInds1)
     print("dnoisy[min,max]: ",dnoisy.min().item(),dnoisy.max().item())
     # print("weight[min,max]: ",weights.min().item(),weights.max().item())
     # print(weights.shape)
     print("dnoisy.shape: ",dnoisy.shape)
     save_burst(dnoisy,"dnoisy")
+
+    # -- rescale --
+    print("noisy_means.shape: ",noisy_means.shape)
+    dnoisy += noisy_means
+    print("dnoisy.shape: ",dnoisy.shape)
 
     # -- re-scatter --
     print("nlInds0.shape: ",nlInds0.shape)
@@ -101,7 +110,8 @@ def format_patches(pnoisy,t):
     return pnoisy
 
 def rescale_patches(patches):
-    return (patches/255. - 0.5)/0.5
+    return patches
+    # return (patches/255. - 0.5)/0.5
 
 def format_nl(bufs,t):
     nlDists = rearrange(bufs.vals,'(t p) k -> t p k',t=t)

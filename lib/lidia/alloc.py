@@ -44,7 +44,7 @@ def allocate_images(noisy,basic,clean,search=None):
     # -- basic --
     imgs.basic = basic
     if basic is None:
-        imgs.basic = th.zeros((t,c,h,w),dtype=dtype).to(device)
+        imgs.basic = th.zeros((t,c,h,w),dtype=dtype,device=device)
 
     # -- clean --
     imgs.clean = clean
@@ -55,9 +55,12 @@ def allocate_images(noisy,basic,clean,search=None):
     imgs.search = search
 
     # -- deno & agg weights --
-    imgs.deno = th.zeros((t,c,h,w),dtype=dtype).to(device)
-    imgs.weights = th.zeros((t,h,w),dtype=dtype).to(device)
-    imgs.vals = th.zeros((t,h,w),dtype=dtype).to(device)
+    imgs.deno = th.zeros((t,c,h,w),dtype=dtype,device=device)
+    imgs.weights = th.zeros((t,h,w),dtype=dtype,device=device)
+    imgs.vals = th.zeros((t,h,w),dtype=dtype,device=device)
+
+    # -- means --
+    imgs.means = th.zeros((t,c,1,1),dtype=th.float32,device=device)
 
     # -- names --
     imgs.patch_images = ["noisy","basic","clean"]

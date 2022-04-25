@@ -31,6 +31,7 @@ def exec_search_dnls(patches,imgs,flows,mask,bufs,args):
     for index in range(args.nstreams):
 
         # -- grab access --
+        print("total: ",mask.sum().item(),args.bsize)
         srch_inds = search_mask.mask2inds(mask,bsize,args.rand_mask)
         if srch_inds.shape[0] == 0:
             done = True
@@ -55,7 +56,7 @@ def exec_search_dnls(patches,imgs,flows,mask,bufs,args):
         after = mask.sum().item()
 
         # -- wait for all streams --
-        torch.cuda.synchronize()
+        th.cuda.synchronize()
 
     # -- update term. condition --
     done = done or (mask.sum().item() == 0)
@@ -78,12 +79,15 @@ def search_and_fill(imgs,patches,bufs,srch_inds,flows,args):
     # srch_img = imgs.noisy if args.step == 0 else imgs.basic
     # srch_img = srch_img if (imgs.clean is None) else imgs.clean
 
+    # -- color correct before search --
+    srch_img = exec_rgb2gray(srch_img)
+
     # -- sim search block --
     bufs.inds[...] = th.iinfo(th.int32).min
     bufs.vals[...] = float("inf")
     vals,inds = dnls.simple.search.run(srch_img,srch_inds,flows,args.k,
                                        args.ps,args.pt,args.ws,args.wt,1,
-                                       scale=args.scale)
+                                       dilation=args.dilation)
     nq = vals.shape[0]
     bufs.vals[:nq,...] = vals[...]
     bufs.inds[:nq,...] = inds[...]
@@ -109,7 +113,37 @@ def search_and_fill(imgs,patches,bufs,srch_inds,flows,args):
         pass_key = (imgs[key] is None) or (patches[key] is None)
         if pass_key: continue
 
+        # -- prepare image --
+        imgs_k = rescale_img(imgs[key])
+        if key == "noisy":
+            imgs.means[...] = imgs_k.mean((-1,-2),keepdim=True)
+            print("imgs_k.shape: ",imgs_k.shape)
+            imgs_k -= imgs.means
+            print_stats("[search_dnls] noisy",imgs_k)
+
         # -- fill --
-        pkey = dnls.simple.scatter.run(imgs[key],bufs.inds,
-                                       args.ps,args.pt,scale=args.scale)
+        pkey = dnls.simple.scatter.run(imgs_k,bufs.inds,
+                                       args.ps,args.pt,dilation=args.dilation)
         patches[key][...] = pkey[...]
+
+def exec_rgb2gray(image_rgb):
+    rgb2gray = th.nn.Conv2d(in_channels=3, out_channels=1,
+                            kernel_size=(1, 1), bias=False)
+    rgb2gray.weight.data = torch.tensor([0.2989, 0.5870, 0.1140],
+                                        dtype=torch.float32).view(1, 3, 1, 1)
+    rgb2gray.weight.requires_grad = False
+    rgb2gray = rgb2gray.to(image_rgb.device)
+    image_g = rgb2gray(image_rgb)
+    print("image_rgb.shape: ",image_rgb.shape)
+    print("image_g.shape: ",image_g.shape)
+    return image_g
+
+def rescale_img(img):
+    return (img/255. - 0.5)/0.5
+
+def print_stats(name,tensor):
+    imin,imax = tensor.min().item(),tensor.max().item()
+    imean = tensor.mean().item()
+    label = "%s[min,max,mean]: " % name
+    print(label,imin,imax,imean)
+

@@ -53,8 +53,8 @@ def exec_nl_step(images,flows,args):
     masks = [mask,mask2]
 
     # -- param --
-    search_scales = [1,2]
-    assert len(search_scales) == args.nlevels
+    search_dilations = [1,2]
+    assert len(search_dilations) == args.nlevels
 
     # -- allocate memory --
     patches = alloc.allocate_patches(args.patch_shape,images.clean,
@@ -79,9 +79,8 @@ def exec_nl_step(images,flows,args):
         done = False
         for level in range(args.nlevels):
             key = patches.levels[level]
-            args.scale = search_scales[level]
+            args.dilation = search_dilations[level]
             mask_l = masks[level]
-            print(mask_l.shape)
             done = search.exec_search(patches[key],images,flows,mask_l,bufs[key],args)
 
         # -- refinemenent the searching --
@@ -97,20 +96,20 @@ def exec_nl_step(images,flows,args):
             break
 
         # -- denoise patches --
-        deno.denoise(vpatches,vbufs,args,args.deno)
+        deno.denoise(vpatches,vbufs,args,args.deno,images.means)
 
         # -- fill valid --
         fill_valid_patches(vpatches,patches,bufs)
 
         # -- aggregate patches --
-        bufs[bufs.levels[0]].vals[:,0] = 1. # no weights
+        bufs[bufs.levels[0]].vals[:,0] = 0. # no weights
         agg.agg_patches(patches,images,bufs,args)
 
         # -- misc --
         th.cuda.empty_cache()
 
         # -- loop update --
-        cmasked = mask.sum().item()
+        cmasked = masks[0].sum().item()
         delta = cmasked_prev - cmasked
         cmasked_prev = cmasked
         nmasked  = nelems - cmasked

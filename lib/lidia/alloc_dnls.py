@@ -95,6 +95,9 @@ def allocate_images(noisy,basic,clean,search=None):
     imgs.weights = th.zeros((t,c,h,w),dtype=dtype).to(device)
     imgs.vals = th.zeros((t,h,w),dtype=dtype).to(device)
 
+    # -- means --
+    imgs.means = th.zeros((t,c,1,1),dtype=th.float32,device=device)
+
     # -- names --
     imgs.patch_images = ["noisy","basic","clean"]
     imgs.ikeys = ["noisy","basic","clean","deno","search"]
