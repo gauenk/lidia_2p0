@@ -207,7 +207,6 @@ class TestNn0(unittest.TestCase):
         error = error.sum().item()
         assert error < 1e-8
 
-
     def run_proc_search(self,name,sigma,device):
 
         # -- get data --

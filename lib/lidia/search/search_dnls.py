@@ -164,10 +164,10 @@ def exec_filtering(vid,ps):
     pad = 1
     t,c,h,w = vid.shape
     vid = pad_fxn(vid, [pad]*4, padding_mode='reflect')
-    vid = bilinear_conv(vid,h,w)
+    vid = bilinear_conv(vid)
     return vid
 
-def bilinear_conv(vid,h,w):
+def bilinear_conv(vid):
 
     # -- create --
     kernel_1d = th.tensor((1 / 4, 1 / 2, 1 / 4), dtype=th.float32)
@@ -179,10 +179,10 @@ def bilinear_conv(vid,h,w):
     nn_bilinear_conv = nn_bilinear_conv.to(vid.device)
 
     # -- exec --
-    t,c,_h,_w = vid.shape
-    vid = vid.view(t*c,1,_h,_w)
+    t,c,h,w = vid.shape
+    vid = vid.view(t*c,1,h,w)
     vid = nn_bilinear_conv(vid)
-    vid = vid.view(t,c,h,w)
+    vid = vid.view(t,c,h-2,w-2)
 
     return vid
 
