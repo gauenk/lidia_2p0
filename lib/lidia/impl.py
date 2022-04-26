@@ -78,6 +78,8 @@ def denoise_nl(noisy, sigma, pm_vid=None, flows=None, gpuid=0, clean=None, verbo
     means = noisy.mean(dim=(-2,-1),keepdim=True)
     noisy -= means
     images = alloc.allocate_images(noisy,means,None,clean)
+    images.noisy_nn0  = noisy
+    images.noisy_nn1  = noisy
 
     # -- get model --
     args.lidia_model = get_lidia_patch_model(device,noisy.shape,sigma)

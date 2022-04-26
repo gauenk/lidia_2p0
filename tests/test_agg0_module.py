@@ -120,7 +120,9 @@ class TestAgg0(unittest.TestCase):
         #
 
         # -- patches --
-        ntire_output = model_ntire.run_nn0(noisy)
+        noisy_mod = (noisy.clone()/255.-0.5)/0.5
+        noisy_mod -= noisy_mod.mean(dim=(-2,-1),keepdim=True)
+        ntire_output = model_ntire.run_nn0(noisy)#_mod)
         ntire_patches = ntire_output[0]
         ntire_dists = ntire_output[1]
         ntire_inds = ntire_output[2]
@@ -139,7 +141,9 @@ class TestAgg0(unittest.TestCase):
         #
 
         # -- patches --
-        nl_output = model_nl.run_nn0_lidia_search(noisy)
+        noisy_mod = (noisy.clone()/255.-0.5)/0.5
+        noisy_mod -= noisy_mod.mean(dim=(-2,-1),keepdim=True)
+        nl_output = model_nl.run_nn0_lidia_search(noisy)#_mod)
         nl_patches = nl_output[0]
         nl_dists = nl_output[1]
         nl_inds = nl_output[2]

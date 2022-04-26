@@ -178,7 +178,7 @@ class Aggregation1(nn.Module):
 
     def forward(self, x, pixels_h, pixels_w, both=False):
         # print("[agg1:1] x.shape: ",x.shape)
-        print("[agg1.input] x.shape: ",x.shape)
+        # print("[agg1.input] x.shape: ",x.shape)
         images, patches, hor_f, ver_f = x.shape
         x = x.permute(0, 2, 3, 1).view(images * hor_f, ver_f, patches)
         # print("[agg1:2] x.shape: ",x.shape)
@@ -207,31 +207,12 @@ class Aggregation1(nn.Module):
         patch_cnt = th.ones(x[0:1, ...].shape, device=x.device)
         patch_cnt = fold(patch_cnt, isize, ksize, dilation=dil,padding=pads)
         x_v2 = fold(x, isize, ksize, dilation=dil,padding=pads) / patch_cnt
-        # print_extrema("patch_cnt",patch_cnt)
-        # print_extrema("post-agg1.x",x_v2)
-        # x_v2 -= x_v2.min()
-        # x_v2 /= x_v2.max()
-        # print("[folded] x.shape: ",x_v2.shape)
-        # # # print_extrema("post-agg1.wx",wx)
-        # save_burst(x_v2,"agg1_x_v2")
-
-        # delta = (x_v1 - x_v2[:,:,4:-4,4:-4])**2
-        # print_extrema("delta",delta)
-        # save_burst(delta,"agg1_delta")
-        # delta = th.sum(delta).item()
-        # print("Delta: ",delta)
-        # x = x_v1
-        # xmin,xmax = x.min().item(),x.max().item()
-        # xmean = x.mean().item()
-        # print("x[min,max,mean]: ",xmin,xmax,xmean)
         x = x_v2
 
+        # -- view --
         x_b, x_c, x_h, x_w = x.shape
-        print("[modules] x_v2.shape: ",x.shape)
         x = self.bilinear_conv(nn_func.pad(x, [1] * 4, 'reflect').view(x_b * x_c, 1, x_h + 2, x_w + 2)) \
             .view(x_b, x_c, x_h, x_w)
-        # x = unfold(x, (self.patch_w, self.patch_w), dilation=(1,1),padding=(2,2))
-        print("[modules] x.shape: ",x.shape)
         x = unfold(x, (self.patch_w, self.patch_w), dilation=(2, 2))
         x = x.view(images, hor_f, ver_f, patches).permute(0, 3, 1, 2)
 
@@ -378,7 +359,7 @@ class SeparableFcNet(nn.Module):
 
             # agg1
             y_out1 = self.ver_hor_agg1_pre(x1)
-            print_extrema("[a] y_out1",y_out1)
+            print("y_out1.shape: ",y_out1.shape)
             y_out1 = weights1 * self.agg1(y_out1 / weights1,
                                           im_params1['pixels_h'],
                                           im_params1['pixels_w'])
@@ -406,7 +387,7 @@ class SeparableFcNet(nn.Module):
             # sep_part2
             inputs = th.cat((x0, x1, y_out0, y_out1), dim=-2)
             out = self.sep_part2(th.cat((x0, x1, y_out0, y_out1), dim=-2))
-            print_extrema("[sepfc] out",out)
+            # print_extrema("[sepfc] out",out)
 
         return out
 
@@ -584,7 +565,7 @@ class NonLocalDenoiser(nn.Module):
     def run_agg1(self,patches,dist1,h,w):
 
         # -- compute weights --
-        pdn_net = self.patch_denoise_net
+        pdn = self.patch_denoise_net
         weights1 = pdn.weights_net1(th.exp(-pdn.alpha1.abs() * dist1)).unsqueeze(-1)
         weighted_patches = patches * weights1
         weights1 = weights1[:, :, 0:1, :]
@@ -594,7 +575,7 @@ class NonLocalDenoiser(nn.Module):
         x1 = sep_net.sep_part1_s1(weighted_patches)
         y_out1 = sep_net.ver_hor_agg1_pre(x1)
         y_out1,fold_out1 = sep_net.agg1(y_out1 / weights1,h,w,both=True)
-        y_out1 = weights1 * y_out1
+        # y_out1 = weights1 * y_out1
         return y_out1,fold_out1
 
     def run_nn0(self,image_n,train=False):
@@ -754,11 +735,12 @@ class NonLocalDenoiser(nn.Module):
 
         # -- re-shaping --
         t,h,w,k = top_dist1.shape
+        pdist = rearrange(patch_dist1,'t (h w) k -> t h w k',h=h)
         top_ind1 = rearrange(top_ind1,'(t h w) k tr -> t h w k tr',t=t,h=h)
         ip1 = im_patches_n1
         ip1 = rearrange(ip1,'t (h w) k d -> t h w k d',h=h)
 
-        return ip1,patch_dist1,top_ind1
+        return ip1,pdist,top_ind1
 
     def denoise_image(self, image_n, train, save_memory, max_batch,
                       srch_img=None, srch_flows=None):
