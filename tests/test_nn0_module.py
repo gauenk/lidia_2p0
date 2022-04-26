@@ -92,8 +92,8 @@ class TestNn0(unittest.TestCase):
         np.random.seed(seed)
 
         # -- exec --
-        self.run_nonlocal0_lidia_search(name,sigma,device)
-        self.run_nonlocal0_dnls_search(name,sigma,device)
+        # self.run_nonlocal0_lidia_search(name,sigma,device)
+        # self.run_nonlocal0_dnls_search(name,sigma,device)
         self.run_proc_search(name,sigma,device)
 
     def run_nonlocal0_lidia_search(self,name,sigma,device):
@@ -222,10 +222,75 @@ class TestNn0(unittest.TestCase):
         model_nl = get_lidia_model_nl(device,im_shape,sigma)
 
         # -- exec nl search  --
-        nl_output = model_nl.run_nn0_dnls_search(noisy/255.)
+        nl_noisy = (noisy.clone()/255.-0.5)/0.5
+        nl_noisy -= nl_noisy.mean(dim=(-2,-1),keepdim=True)
+        nl_output = model_nl.run_nn0_dnls_search(nl_noisy)
         nl_patches = nl_output[0]
         nl_dists = nl_output[1]
         nl_inds = nl_output[2]
 
         # -- exec proc nl search loop  --
+        nl_noisy = (noisy/255.-0.5)/0.5
+        nl_res = lidia.run_search(nl_noisy,sigma)
+        patches0,inds0 = nl_res.p0,nl_res.i0
+        s = int(np.sqrt(patches0.shape[0]/t))
+        ishape = '(t h w) k 1 c ph pw -> t h w k (c ph pw)'
+        patches0 = rearrange(patches0,ishape,h=s,w=s)
+        print("patches0.shape: ",patches0.shape)
+        print("nl_patches.shape: ",nl_patches.shape)
+
+        #
+        # -- Viz --
+        #
+
+        print("-"*30)
+        print("inds0.shape: ",inds0.shape)
+        print("nl_inds.shape: ",nl_inds.shape)
+        print(inds0[0,0,0,:3])
+        print(nl_inds[0,0,0,:3])
+        print("-"*30)
+        print(inds0[0,16,16,:3])
+        print(nl_inds[0,16,16,:3])
+
+        print("-"*30)
+        print(nl_patches[0,16,16,0].view(3,5,5)[0])
+        print(patches0[0,16,16,0].view(3,5,5)[0])
+        # print(nl_patches[0,2,2,0].view(3,5,5)[0])
+        # print(patches0[0,2,2,0].view(3,5,5)[0])
+        print("-"*30)
+        print(nl_patches[0,16,16,1].view(3,5,5)[0])
+        print(patches0[0,16,16,1].view(3,5,5)[0])
+        print("-"*30)
+
+
+        a = nl_patches[0,2,2,0].view(3,5,5)[0]
+        b = patches0[0,2,2,0].view(3,5,5)[0]
+        error = th.mean((nl_patches[0] - patches0[0])**2,-1)
+        print(error.shape)
+        error = repeat(error,'h w k -> k c h w',c=3)
+        print(error.shape)
+        save_burst(error,"output/tests/nn0","delta_p0")
+
+
+        #
+        # -- Comparison --
+        #
+
+        # -- 0th neigh --
+        error = (nl_patches[...,0,:] - patches0[...,0,:])**2
+        error = error.sum().item()
+        print(error)
+        assert error < 1e-10
+
+        # -- 1st neigh --
+        error = (nl_patches[...,1,:] - patches0[...,1,:])**2
+        error = error.sum().item()
+        print(error)
+        assert error < 1e-10
+
+        # -- all neigh --
+        error = (nl_patches - patches0)**2
+        error = error.sum().item()
+        print(error)
+        assert error < 1e-10
 

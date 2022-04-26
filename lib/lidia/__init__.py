@@ -15,6 +15,7 @@ from . import data
 from . import data_modules
 from .deno_set import denoise_npc,denoise_ntire2020
 from .impl import denoise_nl
+from .nl_search import run_search
 
 
 def denoise(noisy, sigma, pm_vid=None, flows=None,

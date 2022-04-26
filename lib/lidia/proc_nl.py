@@ -43,8 +43,6 @@ def exec_nl_step(images,flows,args):
 
     # -- init --
     # pp.pprint(args)
-    print(args.ws)
-    print(args.wt)
 
     # -- create access mask --
     mask,ngroups = search_mask.init_mask(images.shape,args)

@@ -77,14 +77,14 @@ def search_and_fill(imgs,patches,bufs,srch_inds,flows,args):
         srch_img = imgs.clean
     elif args.srch_img == "search":
         srch_img = imgs.search
+    elif args.srch_img == "noisy_nn0":
+        srch_img = imgs.noisy_nn0
+    elif args.srch_img == "noisy_nn1":
+        srch_img = imgs.noisy_nn1
     else:
         raise ValueError(f"uknown search image [{args.srch_img}]")
-    # srch_img = imgs.noisy if args.step == 0 else imgs.basic
-    # srch_img = srch_img if (imgs.clean is None) else imgs.clean
 
     # -- color correct before search --
-    if args.dilation == 2:
-        srch_img = exec_filtering(srch_img,args.ps)
     srch_img = exec_rgb2gray(srch_img)
 
     # -- sim search block --
@@ -120,18 +120,25 @@ def search_and_fill(imgs,patches,bufs,srch_inds,flows,args):
         if pass_key: continue
 
         # -- prepare image --
-        imgs_k = rescale_img(imgs[key])
+        imgs_k = imgs[key]
         if key == "noisy":
-            imgs.means[...] = imgs_k.mean((-1,-2),keepdim=True)
-            if args.dilation == 2:
-                img_k = exec_filtering(imgs_k,args.ps)
-            imgs_k -= imgs.means
-            print_stats("[search_dnls] noisy",imgs_k)
+            if args.dilation == 1:
+                imgs_k = imgs["noisy_nn0"]
+            elif args.dilation == 2:
+                imgs_k = imgs["noisy_nn1"]
+            else:
+                raise ValueError("Uknown dilation.")
 
         # -- fill --
         pkey = dnls.simple.scatter.run(imgs_k,bufs.inds,
                                        args.ps,args.pt,
                                        dilation=args.dilation)
+        if key == "noisy":
+            print("imgs_k.shape: ",imgs_k.shape)
+            print("imgs[key].shape: ",imgs[key].shape)
+            # print(imgs_k[:,10:12,10:12])
+            print("pkey.shape: ",pkey.shape)
+            # print(pkey)
         patches[key][...] = pkey[...]
 
 def exec_rgb2gray(image_rgb):

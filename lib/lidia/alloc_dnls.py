@@ -64,7 +64,7 @@ def allocate_flows(flows,shape,device):
 # -- Allocate Image Memory --
 #
 
-def allocate_images(noisy,basic,clean,search=None):
+def allocate_images(noisy,means,basic,clean,search=None):
 
     # -- create images --
     imgs = edict()
@@ -96,7 +96,7 @@ def allocate_images(noisy,basic,clean,search=None):
     imgs.vals = th.zeros((t,h,w),dtype=dtype).to(device)
 
     # -- means --
-    imgs.means = th.zeros((t,c,1,1),dtype=th.float32,device=device)
+    imgs.means = means
 
     # -- names --
     imgs.patch_images = ["noisy","basic","clean"]
