@@ -141,6 +141,20 @@ def search_and_fill(imgs,patches,bufs,srch_inds,flows,args):
             # print(pkey)
         patches[key][...] = pkey[...]
 
+        # -- update dists --
+        if key == "noisy":
+
+            # -- view patch --
+            ip = patches[key]
+            p,k,pt,c,ps,ps = ip.shape
+            d = pt*c*ps*ps
+            ip = ip.view(p,k,d)
+
+            # -- update with var --
+            bufs.vals[:,:-1] = bufs.vals[:,1:]
+            bufs.vals[:,-1] = ip[:,0].std(-1)**2*d
+
+
 def exec_rgb2gray(image_rgb):
     rgb2gray = th.nn.Conv2d(in_channels=3, out_channels=1,
                             kernel_size=(1, 1), bias=False)

@@ -140,7 +140,7 @@ class Aggregation0(nn.Module):
         x = fold(x, (pixels_h, pixels_w), (self.patch_w, self.patch_w)) / patch_cnt
         return patch_cnt
 
-    def forward(self, x, pixels_h, pixels_w):
+    def forward(self, x, pixels_h, pixels_w,both=False):
         # print("[agg0] x.shape: ",x.shape)
         images, patches, hor_f, ver_f = x.shape
         x = x.permute(0, 2, 3, 1).contiguous().view(images * hor_f, ver_f, patches)
@@ -150,6 +150,8 @@ class Aggregation0(nn.Module):
         # print("[agg0] patch_cnt.shape: ",patch_cnt.shape)
         # print_extrema("prefold-agg0.x",x)
         x = fold(x, (pixels_h, pixels_w), (self.patch_w, self.patch_w)) / patch_cnt
+        xf = x
+        # print("[module] gather shape: ",x.shape)
         # print_extrema("postfold-agg0.x",x)
         # print("[agg0:fold]: x.shape ",x.shape)
         x = unfold(x, (self.patch_w, self.patch_w))
@@ -158,8 +160,10 @@ class Aggregation0(nn.Module):
         x = x.view(images, hor_f, ver_f, patches).permute(0, 3, 1, 2)
         # print("[agg0:view]: x.shape ",x.shape)
 
-        return x
-
+        if both:
+            return x,xf
+        else:
+            return x
 
 class Aggregation1(nn.Module):
     def __init__(self, patch_w):
@@ -172,7 +176,7 @@ class Aggregation1(nn.Module):
         self.bilinear_conv.weight.data = kernel_2d
         self.bilinear_conv.weight.requires_grad = False
 
-    def forward(self, x, pixels_h, pixels_w):
+    def forward(self, x, pixels_h, pixels_w, both=False):
         # print("[agg1:1] x.shape: ",x.shape)
         print("[agg1.input] x.shape: ",x.shape)
         images, patches, hor_f, ver_f = x.shape
@@ -231,8 +235,10 @@ class Aggregation1(nn.Module):
         x = unfold(x, (self.patch_w, self.patch_w), dilation=(2, 2))
         x = x.view(images, hor_f, ver_f, patches).permute(0, 3, 1, 2)
 
-        return x
-
+        if both:
+            return x,x_v2
+        else:
+            return x
 
 class VerHorBnRe(nn.Module):
     def __init__(self, ver_in, ver_out, hor_in, hor_out, bn):
@@ -303,6 +309,7 @@ class SeparableFcNet(nn.Module):
 
         self.sep_part2 = SeparablePart2(arch_opt=arch_opt, hor_size_in=56, patch_numel=patch_numel, ver_size=ver_size)
 
+
     def forward(self, x0, x1, weights1, im_params0, im_params1, save_memory, max_chunk):
         # print("x0.shape: ",x0.shape)
         # print("x1.shape: ",x1.shape)
@@ -350,8 +357,10 @@ class SeparableFcNet(nn.Module):
 
         else:
             # sep_part1
-            # print_extrema("[pre-sep] x0",x0)
-            # print_extrema("[pre-sep] x1",x1)
+            print_extrema("[pre-sep] x0",x0)
+            print_extrema("[pre-sep] x1",x1)
+            print("x0.shape: ",x0.shape)
+            print("x1.shape: ",x1.shape)
             x0 = self.sep_part1_s0(x0)
             x1 = self.sep_part1_s1(x1)
             # print_extrema("[sep] x0",x0)
@@ -360,7 +369,6 @@ class SeparableFcNet(nn.Module):
             # agg0
             y_out0 = self.ver_hor_agg0_pre(x0)
             # print_extrema("[a] y_out0",y_out0)
-            # print("y_out0.shape: ",y_out0.shape)
             y_out0 = self.agg0(y_out0, im_params0['pixels_h'], im_params0['pixels_w'])
             # print_extrema("[b] y_out0",y_out0)
             # print("y_out0.shape: ",y_out0.shape)
@@ -558,6 +566,37 @@ class NonLocalDenoiser(nn.Module):
 
         return top_dist, top_ind
 
+    def run_agg0(self,patches,dist0,h,w):
+
+        # -- compute weights --
+        pdn = self.patch_denoise_net
+        weights0 = pdn.weights_net0(th.exp(-pdn.alpha0.abs() * dist0)).unsqueeze(-1)
+        weighted_patches = patches * weights0
+
+        # -- compute sep layers --
+        sep_net = self.patch_denoise_net.separable_fc_net
+        x0 = sep_net.sep_part1_s0(weighted_patches)
+        y_out0 = sep_net.ver_hor_agg0_pre(x0)
+        y_out0,fold_out0 = sep_net.agg0(y_out0, h, w,both=True)
+
+        return y_out0,fold_out0
+
+    def run_agg1(self,patches,dist1,h,w):
+
+        # -- compute weights --
+        pdn_net = self.patch_denoise_net
+        weights1 = pdn.weights_net1(th.exp(-pdn.alpha1.abs() * dist1)).unsqueeze(-1)
+        weighted_patches = patches * weights1
+        weights1 = weights1[:, :, 0:1, :]
+
+        # -- compute patches output --
+        sep_net = self.patch_denoise_net.separable_fc_net
+        x1 = sep_net.sep_part1_s1(weighted_patches)
+        y_out1 = sep_net.ver_hor_agg1_pre(x1)
+        y_out1,fold_out1 = sep_net.agg1(y_out1 / weights1,h,w,both=True)
+        y_out1 = weights1 * y_out1
+        return y_out1,fold_out1
+
     def run_nn0(self,image_n,train=False):
 
         # -- pad & unpack --
@@ -582,15 +621,15 @@ class NonLocalDenoiser(nn.Module):
         top_ind0 += ip * th.arange(top_ind0.shape[0],device=device).view(-1, 1, 1, 1)
 
         # -- get all patches -
-        im_patches_n0 = unfold(image_n0, (self.patch_w, self.patch_w)).\
+        patches = unfold(image_n0, (self.patch_w, self.patch_w)).\
             transpose(1, 0).contiguous().view(patch_numel, -1).t()
 
         # -- organize patches by knn --
-        im_patches_n0 = im_patches_n0[top_ind0.view(-1), :].\
+        patches = patches[top_ind0.view(-1), :].\
             view(top_ind0.shape[0], -1, 14, patch_numel)
 
         # -- append anchor patch spatial variance --
-        patch_var0 = im_patches_n0[:, :, 0, :].std(dim=-1).\
+        patch_var0 = patches[:, :, 0, :].std(dim=-1).\
             unsqueeze(-1).pow(2) * patch_numel
         patch_dist0 = th.cat((patch_dist0, patch_var0), dim=-1)
 
@@ -606,13 +645,12 @@ class NonLocalDenoiser(nn.Module):
         inds3d[...,2] -= 14
 
         # -- format [dists,inds] --
-        ip0 = im_patches_n0
-        sp = int(np.sqrt(ip0.shape[1]))
-        ip0 = rearrange(ip0,'t (h w) k d -> t h w k d',h=sp)
-        top_dist0 = rearrange(top_dist0,'t h w k -> t h w k',t=t)
+        sp = int(np.sqrt(patches.shape[1]))
+        patches = rearrange(patches,'t (h w) k d -> t h w k d',h=sp)
+        patch_dist0 = rearrange(patch_dist0,'t (h w) k -> t h w k',h=sp)
         inds3d = rearrange(inds3d,'(t h w) k tr -> t h w k tr',t=t,h=sp)
 
-        return ip0,top_dist0,inds3d
+        return patches,patch_dist0,inds3d
 
     def run_nn1(self,image_n,train=False):
 
@@ -696,9 +734,9 @@ class NonLocalDenoiser(nn.Module):
         print("[modules] im_patches_n1.shape: ",im_patches_n1.shape)
 
         # -- append anchor patch spatial variance --
-        # patch_dist1 = top_dist1.view(top_dist1.shape[0], -1, 14)[:, :, 1:]
-        # patch_var1 = im_patches_n1[:, :, 0, :].std(dim=-1).unsqueeze(-1).pow(2) * pn
-        # patch_dist1 = th.cat((patch_dist1, patch_var1), dim=-1)
+        patch_dist1 = top_dist1.view(top_dist1.shape[0], -1, 14)[:, :, 1:]
+        patch_var1 = im_patches_n1[:, :, 0, :].std(dim=-1).unsqueeze(-1).pow(2) * pn
+        patch_dist1 = th.cat((patch_dist1, patch_var1), dim=-1)
 
         #
         # -- Final Formatting --
@@ -720,7 +758,7 @@ class NonLocalDenoiser(nn.Module):
         ip1 = im_patches_n1
         ip1 = rearrange(ip1,'t (h w) k d -> t h w k d',h=h)
 
-        return ip1,top_dist1,top_ind1
+        return ip1,patch_dist1,top_ind1
 
     def denoise_image(self, image_n, train, save_memory, max_batch,
                       srch_img=None, srch_flows=None):

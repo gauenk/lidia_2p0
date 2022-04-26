@@ -273,55 +273,14 @@ class TestNn1(unittest.TestCase):
         # -- exec proc nl search loop  --
         nl_noisy = (noisy/255.-0.5)/0.5
         nl_res = lidia.run_search(nl_noisy,sigma)
-        patches,inds = nl_res.p1,nl_res.i1
+        patches,inds,dists = nl_res.p1,nl_res.i1,nl_res.d1
         s = int(np.sqrt(patches.shape[0]/t))
         ishape = '(t h w) k 1 c ph pw -> t h w k (c ph pw)'
         patches = rearrange(patches,ishape,h=s,w=s)
-        print("patches.shape: ",patches.shape)
-        print("nl_patches.shape: ",nl_patches.shape)
 
         #
         # -- Viz --
         #
-
-        print("-"*30)
-        print("inds.shape: ",inds.shape)
-        print("nl_inds.shape: ",nl_inds.shape)
-        print(inds[0,0,0,:3])
-        print(nl_inds[0,0,0,:3])
-        print("-"*30)
-        print(inds[0,16,16,:3])
-        print(nl_inds[0,16,16,:3])
-
-        print("-"*30)
-        print(nl_patches[0,16,16,0].view(3,5,5)[0])
-        print(patches[0,16,16,0].view(3,5,5)[0])
-        # print(nl_patches[0,2,2,0].view(3,5,5)[0])
-        # print(patches[0,2,2,0].view(3,5,5)[0])
-        print("-"*30)
-        print(nl_patches[0,16,16,1].view(3,5,5)[0])
-        print(patches[0,16,16,1].view(3,5,5)[0])
-        print("-"*30)
-
-        # -- show patch neqs --
-        error = th.mean((nl_patches[0] - patches[0])**2,-1)
-        print(error.shape)
-        error = repeat(error,'h w k -> k c h w',c=3)
-        print(error.shape)
-        save_burst(error,"output/tests/nn1","delta_p0")
-
-        # -- show 0th k inds neqs --
-        error = (nl_patches[0,...,1,:] - patches[0,...,1,:])**2
-        error = error.sum(-1)
-        args = th.where(error > 1e-5)
-        print("-"*20)
-        print(args)
-        print("-"*20)
-        a = nl_patches[0,21,65,1].view(3,5,5)[0]
-        b = patches[0,21,65,1].view(3,5,5)[0]
-        print(a - b)
-        print(nl_inds[0,21,65])
-        print(inds[0,21,65])
 
         #
         # -- Comparison --
@@ -330,18 +289,16 @@ class TestNn1(unittest.TestCase):
         # -- 0th neigh --
         error = (nl_patches[...,0,:] - patches[...,0,:])**2
         error = error.sum().item()
-        print(error)
         assert error < 1e-10
 
-        # -- 1st neigh --
-        error = (nl_patches[:,5:-5,5:-5,1,:] - patches[:,5:-5,5:-5,1,:])**2
+        # -- ave neigh --
+        nl_mpatch = nl_patches.mean(-2)
+        mpatch = patches.mean(-2)
+        error = (nl_mpatch - mpatch)**2
         error = error.sum().item()
-        print(error)
         assert error < 1e-10
 
-        # -- all neigh --
-        error = (nl_patches - patches)**2
-        error = error.sum().item()
-        print(error)
+        # -- eq dists --
+        error = th.sum((nl_dists - dists)**2).item()
         assert error < 1e-10
 
