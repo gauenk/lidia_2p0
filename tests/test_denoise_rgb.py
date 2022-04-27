@@ -161,7 +161,7 @@ class TestLidiaDenoiseRgb(unittest.TestCase):
 
         # -- compare all [boarders have error] --
         error_vals = th.sum((deno_def - deno_steps)**2).item()
-        assert error_vals < 100.
+        assert error_vals < 110.
 
         # -- max pixel diff --
         error_vals = ((deno_def - deno_steps)**2).max().item()

@@ -32,7 +32,7 @@ register_method = clean_code.register_method(__methods__)
 # -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 @register_method
-def run_parts(self,noisy,sigma):
+def run_parts(self,noisy,sigma,srch_img=None):
 
     #
     # -- Prepare --
@@ -42,19 +42,21 @@ def run_parts(self,noisy,sigma):
     noisy = (noisy/255. - 0.5)/0.5
     means = noisy.mean((-2,-1),True)
     noisy -= means
+    if srch_img is None:
+        srch_img = noisy
 
     #
     # -- Non-Local Search --
     #
 
     # -- [nn0 search]  --
-    output0 = self.run_nn0(noisy.clone())
+    output0 = self.run_nn0(noisy.clone(),srch_img.clone())
     patches0 = output0[0]
     dists0 = output0[1]
     inds0 = output0[2]
 
     # -- [nn1 search]  --
-    output1 = self.run_nn1(noisy.clone())
+    output1 = self.run_nn1(noisy.clone(),srch_img.clone())
     patches1 = output1[0]
     dists1 = output1[1]
     inds1 = output1[2]
@@ -225,12 +227,12 @@ def run_agg1(self,patches,dist1,inds1,h,w):
 # -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 @register_method
-def run_nn0(self,image_n,train=False):
-    # return self.run_nn0_dnls_search(image_n,train)
-    return self.run_nn0_lidia_search(image_n,train)
+def run_nn0(self,image_n,srch_img=None,train=False):
+    return self.run_nn0_dnls_search(image_n,srch_img,train)
+    # return self.run_nn0_lidia_search(image_n,train)
 
 @register_method
-def run_nn0_dnls_search(self,image_n,train=False):
+def run_nn0_dnls_search(self,image_n,srch_img,train=False):
 
     #
     # -- Our Search --
@@ -243,8 +245,13 @@ def run_nn0_dnls_search(self,image_n,train=False):
     ps = self.patch_w
 
     # -- get search image --
-    if self.arch_opt.rgb: img_nn0 = self.rgb2gray(image_n0)
-    else: img_nn0 = image_n0
+    if not(srch_img is None):
+        img_nn0 = self.pad_crop0(image_n, self.pad_offs, train)
+        img_nn0 = self.rgb2gray(img_nn0)
+    elif self.arch_opt.rgb:
+        img_nn0 = self.rgb2gray(image_n0)
+    else:
+        img_nn0 = image_n0
 
     # -- get search inds --
     pad = ps//2
@@ -362,17 +369,12 @@ def run_nn0_lidia_search(self,image_n,train=False):
     return ip0,patch_dist0,dnls_inds
 
 @register_method
-def run_nn1(self,image_n,train=False):
-    # return self.run_nn1_dnls_search(image_n,train)
-    return self.run_nn1_lidia_search(image_n,train)
+def run_nn1(self,image_n,srch_img=None,train=False):
+    return self.run_nn1_dnls_search(image_n,srch_img,train)
+    # return self.run_nn1_lidia_search(image_n,train)
 
 @register_method
-def run_nn1_dnls_search(self,image_n,train=False):
-
-    # -- unpack --
-    ps = self.patch_w
-    pad = 2*(ps-1) # dilation "= 2"
-
+def prepare_image_n1(self,image_n,train):
     # -- pad & unpack --
     patch_numel = (self.patch_w ** 2) * image_n.shape[1]
     device = image_n.device
@@ -384,14 +386,32 @@ def run_nn1_dnls_search(self,image_n,train=False):
     image_n1 = self.bilinear_conv(image_n1)
     image_n1 = image_n1.view(im_n1_b, im_n1_c, im_n1_h - 2, im_n1_w - 2)
     image_n1 = self.pad_crop1(image_n1, train, 'constant')
+    return image_n1
+
+@register_method
+def run_nn1_dnls_search(self,image_n,srch_img=None,train=False):
+
+    # -- unpack --
+    ps = self.patch_w
+    pad = 2*(ps-1) # dilation "= 2"
+    device = image_n.device
+    patch_numel = (self.patch_w ** 2) * image_n.shape[1]
+
+    # -- pad & unpack --
+    image_n1 = self.prepare_image_n1(image_n,train)
 
     #
     #  -- DNLS Search --
     #
 
     # -- get search image --
-    if self.arch_opt.rgb: img_nn1 = self.rgb2gray(image_n1)
-    else: img_nn1 = image_n1
+    if not(srch_img is None):
+        img_nn1 = self.prepare_image_n1(srch_img,train)
+        img_nn1 = self.rgb2gray(img_nn1)
+    elif self.arch_opt.rgb:
+        img_nn1 = self.rgb2gray(image_n1)
+    else:
+        img_nn1 = image_n1
 
     # -- get search inds --
     pad_s = ps//2
