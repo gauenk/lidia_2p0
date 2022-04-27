@@ -58,7 +58,7 @@ def run_rgb2gray_patches(patches,ps):
 #
 #
 
-class TestAgg0(unittest.TestCase):
+class TestAgg1(unittest.TestCase):
 
     #
     # -- Load Data --
@@ -81,17 +81,17 @@ class TestAgg0(unittest.TestCase):
         burst = th.from_numpy(burst).type(th.float32)
         return burst
 
-    def test_agg0(self):
+    def test_agg1(self):
         # -- params --
         name = "davis_baseball_64x64"
         sigma = 50.
         device = "cuda:0"
 
         # -- exec --
-        self.run_agg0_ntire(name,sigma,device)
-        # self.run_agg0_nl(name,sigma,device)
+        self.run_agg1_ntire(name,sigma,device)
+        # self.run_agg1_nl(name,sigma,device)
 
-    def run_agg0_ntire(self,name,sigma,device):
+    def run_agg1_ntire(self,name,sigma,device):
 
         #
         # -- Prepare --
@@ -120,77 +120,102 @@ class TestAgg0(unittest.TestCase):
         #
 
         # -- patches --
-        noisy_mod = (noisy.clone()/255.-0.5)/0.5
-        noisy_mod -= noisy_mod.mean(dim=(-2,-1),keepdim=True)
-        ntire_output = model_ntire.run_nn0(noisy)#_mod)
+        ntire_output = model_ntire.run_nn1(noisy)
         ntire_patches = ntire_output[0]
         ntire_dists = ntire_output[1]
         ntire_inds = ntire_output[2]
         t,hp,wp,k,d = ntire_patches.shape
 
+        # -- shape info --
+        ps = 5
+        pad_s = 2*(ps//2) # dilation "= 2"
+        ha,wa = hp+2*pad_s,wp+2*pad_s
+
+        print("ntire_dists.shape: ",ntire_dists.shape)
+        print("ntire_inds.shape: ",ntire_inds.shape)
+
         # -- agg --
-        ha,wa = 72,72
         ipatches = rearrange(ntire_patches,'t h w k d -> t (h w) k d')
         idists = rearrange(ntire_dists,'t h w k -> t (h w) k')
-        ntire_agg0,ntire_s0,ntire_fold = model_ntire.run_agg0(ipatches,idists,ha,wa)
+        output = model_ntire.run_agg1(ipatches,idists,ha,wa)
+        ntire_agg1,ntire_s1,ntire_fold,ntire_wp = output
         ntire_fold = ntire_fold.detach()
-        ntire_agg0 = rearrange(ntire_agg0,'t (h w) k d -> t h w k d',h=hp).detach()/30.
+        ntire_agg1 = rearrange(ntire_agg1,'t (h w) k d -> t h w k d',h=hp).detach()/30.
 
         #
         # -- comparison --
         #
 
         # -- patches --
-        noisy_mod = (noisy.clone()/255.-0.5)/0.5
-        noisy_mod -= noisy_mod.mean(dim=(-2,-1),keepdim=True)
-        nl_output = model_nl.run_nn0_lidia_search(noisy)#_mod)
-        nl_patches = nl_output[0]
-        nl_dists = nl_output[1]
-        nl_inds = nl_output[2]
+        nl_output = model_nl.run_nn1_lidia_search(noisy)
+        nl_patches = ntire_patches#nl_output[0]
+        nl_dists = ntire_dists#nl_output[1]
+        nl_inds = ntire_inds#nl_output[2]
 
         # -- agg --
-        ha,wa = 72,72
         ipatches = rearrange(nl_patches,'t h w k d -> t (h w) k d')
         iinds = rearrange(nl_inds,'t h w k tr -> t (h w) k tr')
         idists = rearrange(nl_dists,'t h w k -> t (h w) k')
-        nl_agg0,nl_s0,nl_fold = model_nl.run_agg0(ipatches,idists,iinds,64,64)
+        # iinds[...,1] -= 28
+        # iinds[...,2] -= 28
+        nl_agg1,nl_s1,nl_fold,nl_wp = model_nl.run_agg1(ipatches,idists,iinds,h,w)
         nl_fold = nl_fold.detach()
-        nl_agg0 = rearrange(nl_agg0,'t (h w) k d -> t h w k d',h=hp).detach()/30.
+        nl_agg1 = rearrange(nl_agg1,'t (h w) k d -> t h w k d',h=hp).detach()/30.
 
         #
         # -- Viz --
         #
 
-        # # -- fold --
-        # error = th.abs(ntire_fold - nl_fold)/255.
-        # save_burst(error,"output/tests/agg0/","error_fold")
-        # error = error.sum()
-        # assert error < 1e-10
+        # -- weighted patches --
+        print("ntire_wp.shape: ",ntire_wp.shape)
+        print("nl_wp.shape: ",nl_wp.shape)
+        nl_wp = nl_wp.view(5,68,68,14,75).detach()
+        ntire_wp = ntire_wp.view(5,68,68,14,75).detach()
+        error = (nl_wp - ntire_wp)**2
+        delta = error.sum(-1)
+        print("delta.shape: ",delta.shape)
+        delta = repeat(delta[...,0],'t h w -> t c h w',c=3)
+        print("error.shape: ",error.shape)
+        print("delta.shape: ",delta.shape)
+        save_burst(delta,"output/tests/agg1/","wp_error")
+        error = error.sum().item()
+        assert error < 1e-10
 
-        # # -- agg --
-        # nta = rearrange(ntire_agg0[:,:,:,0,13::25],'t h w c -> t c h w')
-        # nla = rearrange(nl_agg0[:,:,:,0,13::25],'t h w c -> t c h w')
-        # save_burst(nta,"output/tests/agg0/","ntire_agg")
-        # save_burst(nla,"output/tests/agg0/","nl_agg")
 
-        # # -- agg delta --
-        # error = th.mean((ntire_agg0 - nl_agg0)**2,-1)
-        # error = repeat(error[...,0],'t h w -> t c h w',c=3)
-        # save_burst(error,"output/tests/agg0/","error_agg")
+        # -- fold --
+        print("ntire_fold.shape: ",ntire_fold.shape)
+        print("nl_fold.shape: ",nl_fold.shape)
+        print(ntire_fold[0,0,:5,:5])
+        print(nl_fold[0,0,:5,:5])
+        error = th.abs(ntire_fold - nl_fold)/255.
+        save_burst(error,"output/tests/agg1/","error_fold")
+        error = error.sum()
+        assert error < 1e-10
+
+        # -- agg --
+        nta = rearrange(ntire_agg1[:,:,:,0,13::25],'t h w c -> t c h w')
+        nla = rearrange(nl_agg1[:,:,:,0,13::25],'t h w c -> t c h w')
+        save_burst(nta,"output/tests/agg1/","ntire_agg")
+        save_burst(nla,"output/tests/agg1/","nl_agg")
+
+        # -- agg delta --
+        error = th.mean((ntire_agg1 - nl_agg1)**2,-1)
+        error = repeat(error,'t h w k -> k t c h w',c=3)
+        save_burst(error[0],"output/tests/agg1/","error_agg")
 
 
         #
         # -- Compare --
         #
 
-        # -- patches  --
-        error = (nl_agg0 - ntire_agg0)**2
+        # -- aggregate  --
+        error = (nl_agg1 - ntire_agg1)**2
         error = error.sum().item()
         assert error < 1e-10
 
 
 
-    def run_agg0_dnl_nn(self,name,sigma,device):
+    def run_agg1_dnl_nn(self,name,sigma,device):
 
         # -- get data --
         ps = 5

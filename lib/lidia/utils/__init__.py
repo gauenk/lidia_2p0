@@ -3,3 +3,7 @@ from .flat_areas import exec_flat_areas,update_flat_patch
 from .misc import optional,optional_pair,optional_rm
 from . import batching
 from . import color
+from . import clean_code
+from . import inds
+from . import io
+from . import logging
