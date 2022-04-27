@@ -23,6 +23,7 @@ from einops import repeat
 # -- clean code --
 from .utils import clean_code
 from . import _nl_modules
+from . import _nl_modules_adapt
 
 
 class ArchitectureOptions:
@@ -394,6 +395,7 @@ class PatchDenoiseNet(nn.Module):
         return patches_dn, patch_weights
 
 
+@clean_code.add_methods_from(_nl_modules_adapt)
 @clean_code.add_methods_from(_nl_modules)
 class NonLocalDenoiser(nn.Module):
 

@@ -32,7 +32,7 @@ register_method = clean_code.register_method(__methods__)
 # -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 @register_method
-def run_parts(self,noisy,sigma,srch_img=None):
+def run_parts(self,noisy,sigma,srch_img=None,flows=None,train=False):
 
     #
     # -- Prepare --
@@ -50,13 +50,13 @@ def run_parts(self,noisy,sigma,srch_img=None):
     #
 
     # -- [nn0 search]  --
-    output0 = self.run_nn0(noisy.clone(),srch_img.clone())
+    output0 = self.run_nn0(noisy.clone(),srch_img.clone(),flows,train)
     patches0 = output0[0]
     dists0 = output0[1]
     inds0 = output0[2]
 
     # -- [nn1 search]  --
-    output1 = self.run_nn1(noisy.clone(),srch_img.clone())
+    output1 = self.run_nn1(noisy.clone(),srch_img.clone(),flows,train)
     patches1 = output1[0]
     dists1 = output1[1]
     inds1 = output1[2]
@@ -76,12 +76,16 @@ def run_parts(self,noisy,sigma,srch_img=None):
     # -- exec --
     image_dn,patches_w = self.run_pdn(patches0,dists0,inds0,
                                       patches1,dists1,inds1)
+    print(image_dn.requires_grad)
+    print(patches_w.requires_grad)
+
     #
     # -- Final Weight Aggregation --
     #
 
     h,w = 64,64
     image_dn = self.run_parts_final(image_dn,patches_w,inds0,h,w)
+    print(image_dn.requires_grad)
 
     # -- normalize for output ---
     image_dn += means
@@ -119,8 +123,10 @@ def run_parts_final(self,image_dn,patch_weights,inds,h,w):
     # -- fold --
     h,w = hp+2*(ps//2),wp+2*(ps//2)
     shape = (t,c,h,w)
+    print("gather: ",image_dn.requires_grad)
     image_dn,_ = dnls.simple.gather.run(image_dn, zeros, inds, shape=shape)
     patch_cnt,_ = dnls.simple.gather.run(wpatch, zeros, inds, shape=shape)
+    print("gather: ",image_dn.requires_grad)
 
     # -- crop --
     row_offs = min(ps - 1, nump - 1)
@@ -227,12 +233,12 @@ def run_agg1(self,patches,dist1,inds1,h,w):
 # -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 @register_method
-def run_nn0(self,image_n,srch_img=None,train=False):
-    return self.run_nn0_dnls_search(image_n,srch_img,train)
+def run_nn0(self,image_n,srch_img=None,flows=None,train=False):
+    return self.run_nn0_dnls_search(image_n,srch_img,flows,train)
     # return self.run_nn0_lidia_search(image_n,train)
 
 @register_method
-def run_nn0_dnls_search(self,image_n,srch_img,train=False):
+def run_nn0_dnls_search(self,image_n,srch_img,flows,train=False):
 
     #
     # -- Our Search --
@@ -267,7 +273,7 @@ def run_nn0_dnls_search(self,image_n,srch_img,train=False):
     # -- search --
     ps = self.patch_w
     k,pt,ws,wt,chnls = 14,1,29,0,1
-    nlDists,nlInds = dnls.simple.search.run(img_nn0,queryInds,None,
+    nlDists,nlInds = dnls.simple.search.run(img_nn0,queryInds,flows,
                                             k,ps,pt,ws,wt,chnls)
 
     # -- rename dists,inds --
@@ -369,8 +375,8 @@ def run_nn0_lidia_search(self,image_n,train=False):
     return ip0,patch_dist0,dnls_inds
 
 @register_method
-def run_nn1(self,image_n,srch_img=None,train=False):
-    return self.run_nn1_dnls_search(image_n,srch_img,train)
+def run_nn1(self,image_n,srch_img=None,flows=None,train=False):
+    return self.run_nn1_dnls_search(image_n,srch_img,flows,train)
     # return self.run_nn1_lidia_search(image_n,train)
 
 @register_method
@@ -389,7 +395,7 @@ def prepare_image_n1(self,image_n,train):
     return image_n1
 
 @register_method
-def run_nn1_dnls_search(self,image_n,srch_img=None,train=False):
+def run_nn1_dnls_search(self,image_n,srch_img=None,flows=None,train=False):
 
     # -- unpack --
     ps = self.patch_w
@@ -427,7 +433,7 @@ def run_nn1_dnls_search(self,image_n,srch_img=None,train=False):
 
     # -- exec search --
     k,pt,ws,wt,chnls = 14,1,29,0,1
-    nlDists,nlInds = dnls.simple.search.run(img_nn1,queryInds,None,
+    nlDists,nlInds = dnls.simple.search.run(img_nn1,queryInds,flows,
                                             k,ps,pt,ws,wt,chnls,
                                             stride=2,dilation=2)
 
