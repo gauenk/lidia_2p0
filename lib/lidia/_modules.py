@@ -97,6 +97,7 @@ def run_parts_final(self,image_dn,patch_weights,h,w):
     print("patch_weights.shape: ",patch_weights.shape)
     h,w = 72,72
     image_dn = fold(image_dn, (h,w),(ps,ps))
+    print("[folded] image_dn.shape: ",image_dn.shape)
     patch_cnt = fold(patch_weights, (h,w),(ps,ps))
 
     # -- crop --

@@ -79,7 +79,7 @@ def run_parts(self,noisy,sigma):
     #
 
     h,w = 64,64
-    image_dn = self.run_parts_final(image_dn,patches_w,h,w)
+    image_dn = self.run_parts_final(image_dn,patches_w,inds0,h,w)
 
     # -- normalize for output ---
     image_dn += means
@@ -89,10 +89,11 @@ def run_parts(self,noisy,sigma):
 
 
 @register_method
-def run_parts_final(self,image_dn,patch_weights,h,w):
+def run_parts_final(self,image_dn,patch_weights,inds,h,w):
 
     # -- prepare --
-    np = 68 # ??
+    nump = 68 # ??
+    c = 3
     ps = self.patch_w
     pdim = image_dn.shape[-1]
     image_dn = image_dn * patch_weights
@@ -100,14 +101,28 @@ def run_parts_final(self,image_dn,patch_weights,h,w):
     patch_weights = (patch_weights * ones_tmp).transpose(2, 1)
     image_dn = image_dn.transpose(2, 1)
 
+    # -- prepare gather --
+    t,hw,k,tr = inds.shape
+    inds = rearrange(inds[...,0,:],'t p tr -> (t p) 1 tr').clone()
+    zeros = th.zeros_like(inds[...,0])
+    hp = int(np.sqrt(hw))
+    wp = hp
+    image_dn = rearrange(image_dn,'t (c h w) p -> (t p) 1 1 c h w',h=ps,w=ps)
+    wpatch = rearrange(patch_weights,'t (c h w) p -> (t p) 1 1 c h w',h=ps,w=ps)
+
+    # -- inds --
+    inds[:,:,1] += (ps//2)
+    inds[:,:,2] += (ps//2)
+
     # -- fold --
-    h,w = 72,72
-    image_dn = fold(image_dn, (h,w),(ps,ps))
-    patch_cnt = fold(patch_weights, (h,w),(ps,ps))
+    h,w = hp+2*(ps//2),wp+2*(ps//2)
+    shape = (t,c,h,w)
+    image_dn,_ = dnls.simple.gather.run(image_dn, zeros, inds, shape=shape)
+    patch_cnt,_ = dnls.simple.gather.run(wpatch, zeros, inds, shape=shape)
 
     # -- crop --
-    row_offs = min(ps - 1, np - 1)
-    col_offs = min(ps - 1, np - 1)
+    row_offs = min(ps - 1, nump - 1)
+    col_offs = min(ps - 1, nump - 1)
     image_dn = crop_offset(image_dn, (row_offs,), (col_offs,))
     image_dn /= crop_offset(patch_cnt, (row_offs,), (col_offs,))
 
@@ -138,11 +153,9 @@ def run_pdn(self,patches_n0,dist0,inds0,patches_n1,dist1,inds1):
     # -- final output --
     inputs = th.cat((s0, s1, agg0, agg1), dim=-2)
     sep_net = self.patch_denoise_net.separable_fc_net
-    print(inputs.min(),inputs.mean(),inputs.max())
     noise = sep_net.sep_part2(inputs)
 
     # -- compute denoised patches --
-    print(noise[0,0,0])
     image_dn,patches_w = self.run_pdn_final(patches_n0,noise)
 
     return image_dn,patches_w
@@ -213,6 +226,7 @@ def run_agg1(self,patches,dist1,inds1,h,w):
 
 @register_method
 def run_nn0(self,image_n,train=False):
+    # return self.run_nn0_dnls_search(image_n,train)
     return self.run_nn0_lidia_search(image_n,train)
 
 @register_method
@@ -349,6 +363,7 @@ def run_nn0_lidia_search(self,image_n,train=False):
 
 @register_method
 def run_nn1(self,image_n,train=False):
+    # return self.run_nn1_dnls_search(image_n,train)
     return self.run_nn1_lidia_search(image_n,train)
 
 @register_method
