@@ -16,6 +16,12 @@ from .utils import clean_code
 __methods__ = [] # self is a DataStore
 register_method = clean_code.register_method(__methods__)
 
+# -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+#
+#    The NonLocalDenoiser in Parts
+#
+# -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+
 @register_method
 def run_parts(self,noisy,sigma):
 
@@ -143,7 +149,7 @@ def run_pdn_final(self,patches_n0,noise):
 
 # -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 #
-#       Aggregation Networks
+#       Aggregation Steps
 #
 # -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 

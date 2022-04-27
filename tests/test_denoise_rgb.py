@@ -25,6 +25,7 @@ from lidia import denoise_nl
 from lidia import denoise_ntire2020
 from lidia.data import save_burst
 from lidia.model_io import get_lidia_model as get_lidia_model_ntire
+from lidia.nl_model_io import get_lidia_model as get_lidia_model_nl
 
 # -- check if reordered --
 from scipy import optimize
@@ -94,7 +95,7 @@ class TestLidiaDenoiseRgb(unittest.TestCase):
         error_vals = th.sum((deno_nl - deno_def)**2).item()
         assert error_vals < 1e-10
 
-    def exec_stepwise_check(self,name,sigma,device="cuda:0"):
+    def exec_ntire_stepwise_check(self,name,sigma,device="cuda:0"):
         """
         Verify that running lidia using a set of
         function calls will give the same output
@@ -123,8 +124,38 @@ class TestLidiaDenoiseRgb(unittest.TestCase):
         save_burst(deno_def,SAVE_DIR,"deno_default")
         save_burst(deno_steps,SAVE_DIR,"deno_steps")
 
-        print(deno_def[0,0,:3,:3])
-        print(deno_steps[0,0,:3,:3])
+        # -- compare --
+        error_vals = th.sum((deno_def - deno_steps)**2).item()
+        assert error_vals < 1e-10
+
+    def exec_nl_stepwise_check(self,name,sigma,device="cuda:0"):
+        """
+        Verify that running lidia using a set of
+        function calls will give the same output
+        as using the standard function call.
+        """
+
+        # -- get data --
+        clean = self.load_burst(name).to(device)
+        print("clean.shape: ",clean.shape)
+        noisy = clean + sigma * th.randn_like(clean)
+
+        # -- some stats --
+        noisy_s = (noisy/255. - 0.5)/0.5
+        noisy_s -= noisy_s.mean((-1,-2),True)
+        print_stats("noisy",noisy_s)
+
+        # -- load model --
+        im_shape = noisy.shape
+        model = get_lidia_model_nl(device,im_shape,sigma)
+
+        # -- exec denos --
+        deno_def = lidia.denoise(noisy.clone(),sigma,ftype="ntire2020").detach()
+        deno_steps = model.run_parts(noisy.clone(),sigma).detach()
+
+        # -- save for viz --
+        save_burst(deno_def,SAVE_DIR,"deno_default")
+        save_burst(deno_steps,SAVE_DIR,"deno_steps")
 
         # -- compare --
         error_vals = th.sum((deno_def - deno_steps)**2).item()
@@ -140,7 +171,8 @@ class TestLidiaDenoiseRgb(unittest.TestCase):
         # -- test 1 --
         name,sigma = "davis_baseball_64x64",15.
         # self.exec_lidia_denoise(name,sigma)
-        self.exec_stepwise_check(name,sigma)
+        # self.exec_ntire_stepwise_check(name,sigma)
+        self.exec_nl_stepwise_check(name,sigma)
 
 
 

@@ -92,8 +92,8 @@ class TestNn0(unittest.TestCase):
         np.random.seed(seed)
 
         # -- exec --
-        # self.run_nonlocal0_lidia_search(name,sigma,device)
-        # self.run_nonlocal0_dnls_search(name,sigma,device)
+        self.run_nonlocal0_lidia_search(name,sigma,device)
+        self.run_nonlocal0_dnls_search(name,sigma,device)
         self.run_proc_search(name,sigma,device)
 
     def run_nonlocal0_lidia_search(self,name,sigma,device):
@@ -109,13 +109,13 @@ class TestNn0(unittest.TestCase):
         model_nl = get_lidia_model_nl(device,im_shape,sigma)
 
         # -- exec ntire search  --
-        ntire_output = model_ntire.run_nn0(noisy)
+        ntire_output = model_ntire.run_nn0(noisy/255.)
         ntire_patches = ntire_output[0]
         ntire_dists = ntire_output[1]
         ntire_inds = ntire_output[2]
 
         # -- exec nl search  --
-        nl_output = model_nl.run_nn0_lidia_search(noisy)
+        nl_output = model_nl.run_nn0_lidia_search(noisy/255.)
         nl_patches = nl_output[0]
         nl_dists = nl_output[1]
         nl_inds = nl_output[2]
@@ -195,7 +195,7 @@ class TestNn0(unittest.TestCase):
         nl_patches = run_rgb2gray_patches(nl_patches,ps)
         dists = (nl_patches - nl_patches[...,[0],:])**2
         nl_pdists = th.sum(dists,-1)
-        error = (nl_pdists - nl_dists)**2
+        error = (nl_pdists[...,1:] - nl_dists[...,:-1])**2
         error = error.sum().item()
         assert error < 1e-8
 
@@ -203,7 +203,7 @@ class TestNn0(unittest.TestCase):
         ntire_patches = run_rgb2gray_patches(ntire_patches,ps)
         dists = (ntire_patches - ntire_patches[...,[0],:])**2
         ntire_pdists = th.sum(dists,-1)
-        error = (ntire_pdists - ntire_dists)**2
+        error = (ntire_pdists[...,1:] - ntire_dists[...,:-1])**2
         error = error.sum().item()
         assert error < 1e-8
 

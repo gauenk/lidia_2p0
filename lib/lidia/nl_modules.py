@@ -18,7 +18,6 @@ import dnls
 
 import torch as th
 from pathlib import Path
-
 from einops import repeat
 
 # -- clean code --
@@ -74,6 +73,7 @@ class Aggregation0(nn.Module):
         return x
 
     def forward(self, x, nlDists, nlInds, pixels_h, pixels_w, both=False):
+        # tag-agg0
 
         # -- prepare x --
         pt,ps,t = 1,self.patch_w,x.shape[0]

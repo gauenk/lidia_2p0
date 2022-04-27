@@ -25,6 +25,141 @@ from .utils import clean_code
 __methods__ = [] # self is a DataStore
 register_method = clean_code.register_method(__methods__)
 
+# -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+#
+#    The NonLocalDenoiser in Parts
+#
+# -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+
+@register_method
+def run_parts(self,noisy,sigma):
+
+    #
+    # -- Prepare --
+    #
+
+    # -- normalize for input ---
+    noisy = (noisy/255. - 0.5)/0.5
+    means = noisy.mean((-2,-1),True)
+    noisy -= means
+
+    #
+    # -- Non-Local Search --
+    #
+
+    # -- [nn0 search]  --
+    output0 = self.run_nn0(noisy)
+    patches0 = output0[0]
+    dists0 = output0[1]
+    inds0 = output0[2]
+
+    # -- [nn1 search]  --
+    output1 = self.run_nn1(noisy)
+    patches1 = output1[0]
+    dists1 = output1[1]
+    inds1 = output1[2]
+
+    #
+    # -- Separable ConvNet --
+    #
+
+    # -- reshape --
+    patches0 = rearrange(patches0,'t h w k d -> t (h w) k d')
+    dists0 = rearrange(dists0,'t h w k -> t (h w) k')
+    inds0 = rearrange(inds0,'t h w k tr -> t (h w) k tr')
+    patches1 = rearrange(patches1,'t h w k d -> t (h w) k d')
+    dists1 = rearrange(dists1,'t h w k -> t (h w) k')
+    inds1 = rearrange(inds1,'t h w k tr -> t (h w) k tr')
+
+    # -- adjust inds --
+    # inds0[...,1] -= 6
+    # inds0[...,2] -= 6
+
+    # -- exec --
+    image_dn,patches_w = self.run_pdn(patches0,dists0,inds0,
+                                      patches1,dists1,inds1)
+
+    #
+    # -- Final Weight Aggregation --
+    #
+
+    h,w = 64,64
+    image_dn = self.run_parts_final(image_dn,patches_w,h,w)
+
+    # -- normalize for output ---
+    image_dn += means
+    image_dn = 255*(image_dn * 0.5 + 0.5)
+
+    return image_dn
+
+
+@register_method
+def run_parts_final(self,image_dn,patch_weights,h,w):
+
+    # -- prepare --
+    np = 68 # ??
+    ps = self.patch_w
+    pdim = image_dn.shape[-1]
+    image_dn = image_dn * patch_weights
+    ones_tmp = th.ones(1, 1, pdim, device=image_dn.device)
+    patch_weights = (patch_weights * ones_tmp).transpose(2, 1)
+    image_dn = image_dn.transpose(2, 1)
+
+    # -- fold --
+    h,w = 72,72
+    image_dn = fold(image_dn, (h,w),(ps,ps))
+    patch_cnt = fold(patch_weights, (h,w),(ps,ps))
+
+    # -- crop --
+    row_offs = min(ps - 1, np - 1)
+    col_offs = min(ps - 1, np - 1)
+    image_dn = crop_offset(image_dn, (row_offs,), (col_offs,))
+    image_dn /= crop_offset(patch_cnt, (row_offs,), (col_offs,))
+
+    return image_dn
+
+# -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+#
+#    Patch-based Denoising Network
+#
+# -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+
+@register_method
+def run_pdn(self,patches_n0,dist0,inds0,patches_n1,dist1,inds1):
+    """
+    Run patch denoiser network
+    """
+    # -- run sep-net --
+    h,w = 72,72
+    agg0,s0,_ = self.run_agg0(patches_n0,dist0,inds0,h,w)
+    h,w = 76,76
+    agg1,s1,_,_ = self.run_agg1(patches_n1,dist1,inds0,h,w)
+
+    # -- final output --
+    inputs = th.cat((s0, s1, agg0, agg1), dim=-2)
+    sep_net = self.patch_denoise_net.separable_fc_net
+    noise = sep_net.sep_part2(inputs)
+
+    # -- compute denoised patches --
+    image_dn,patches_w = self.run_pdn_final(patches_n0,noise)
+
+    return image_dn,patches_w
+
+@register_method
+def run_pdn_final(self,patches_n0,noise):
+    pdn = self.patch_denoise_net
+    patches_dn = patches_n0[:, :, 0, :] - noise.squeeze(-2)
+    patches_no_mean = patches_dn - patches_dn.mean(dim=-1, keepdim=True)
+    patch_exp_weights = (patches_no_mean ** 2).mean(dim=-1, keepdim=True)
+    patch_weights = th.exp(-pdn.beta.abs() * patch_exp_weights)
+    return patches_dn,patch_weights
+
+# -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+#
+#       Aggregation Steps
+#
+# -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+
 @register_method
 def run_agg0(self,patches,dist0,inds0,h,w):
 
@@ -62,6 +197,17 @@ def run_agg1(self,patches,dist1,inds1,h,w):
 
     return y_out1,x1,fold_out1,wpatches
 
+
+# -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+#
+#     Run Nearest Neighbors Search
+#
+# -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+
+@register_method
+def run_nn0(self,image_n,train=False):
+    return self.run_nn0_dnls_search(image_n,train)
+
 @register_method
 def run_nn0_dnls_search(self,image_n,train=False):
 
@@ -74,13 +220,13 @@ def run_nn0_dnls_search(self,image_n,train=False):
     patch_numel = (self.patch_w ** 2) * image_n.shape[1]
     image_n0 = self.pad_crop0(image_n, self.pad_offs, train)
     ps = self.patch_w
-    pad = ps//2
 
     # -- get search image --
     if self.arch_opt.rgb: img_nn0 = self.rgb2gray(image_n0)
     else: img_nn0 = image_n0
 
     # -- get search inds --
+    pad = ps//2
     t,c,h,w = image_n.shape
     hp,wp = h+2*pad,w+2*pad
     queryInds = th.arange(t*hp*wp,device=device).reshape(-1,1,1,1)
@@ -180,6 +326,7 @@ def run_nn0_lidia_search(self,image_n,train=False):
         unsqueeze(-1).pow(2) * patch_numel
     patch_dist0 = th.cat((patch_dist0, patch_var0), dim=-1)
 
+
     # -- rescale inds --
     dnls_inds[...,1] -= 14
     dnls_inds[...,2] -= 14
@@ -189,8 +336,13 @@ def run_nn0_lidia_search(self,image_n,train=False):
     dnls_inds = rearrange(dnls_inds,'(t h w) k tr -> t h w k tr',t=t,h=h)
     ip0 = im_patches_n0
     ip0 = rearrange(ip0,'t (h w) k d -> t h w k d',h=h)
+    patch_dist0 = rearrange(patch_dist0,'t (h w) k -> t h w k',h=h)
 
-    return ip0,top_dist0,dnls_inds
+    return ip0,patch_dist0,dnls_inds
+
+@register_method
+def run_nn1(self,image_n,train=False):
+    return self.run_nn1_dnls_search(image_n,train)
 
 @register_method
 def run_nn1_dnls_search(self,image_n,train=False):
@@ -247,7 +399,6 @@ def run_nn1_dnls_search(self,image_n,train=False):
     hp,wp = _h+2*pad,_w+2*pad
     patches = dnls.simple.scatter.run(image_n1,nlInds,ps,dilation=2)
 
-
     #
     # -- Final Formatting --
     #
@@ -267,6 +418,8 @@ def run_nn1_dnls_search(self,image_n,train=False):
     nlDists[...,-1] = patch_var
 
     # -- centering inds --
+    t,c,h1,w1 = image_n1.shape
+    sh,sw = (h1 - hp)//2,(w1 - wp)//2
     nlInds[...,1] -= sh
     nlInds[...,2] -= sw
 
@@ -381,6 +534,16 @@ def run_nn1_lidia_search(self,image_n,train=False):
     top_ind1 = rearrange(top_ind1,'(t h w) k tr -> t h w k tr',t=t,h=h)
     ip1 = im_patches_n1
     ip1 = rearrange(ip1,'t (h w) k d -> t h w k d',h=h)
+
+    # -- patch variance --
+    d = ip1.shape[-1]
+    patch_var = ip1[...,0,:].std(-1)**2*d
+    top_dist1[...,:-1] = top_dist1[...,1:]
+    top_dist1[...,-1] = patch_var
+
+    # -- zero-out inds --
+    top_ind1[...,1] -= 28
+    top_ind1[...,2] -= 28
 
     return ip1,top_dist1,top_ind1
 

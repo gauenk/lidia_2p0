@@ -81,21 +81,26 @@ class TestAgg0(unittest.TestCase):
         burst = th.from_numpy(burst).type(th.float32)
         return burst
 
-    def test_agg0(self):
-        # -- params --
+    def test_agg0_ntire(self):
         name = "davis_baseball_64x64"
         sigma = 50.
         device = "cuda:0"
-
-        # -- exec --
         self.run_agg0_ntire(name,sigma,device)
-        # self.run_agg0_nl(name,sigma,device)
+
+    def test_agg0_dnls(self):
+        name = "davis_baseball_64x64"
+        sigma = 50.
+        device = "cuda:0"
+        self.run_agg0_dnls(name,sigma,device)
+
 
     def run_agg0_ntire(self,name,sigma,device):
 
+        # -=-=-=-=-=-=-=-=-=-=-=-
         #
-        # -- Prepare --
+        #        Prepare
         #
+        # -=-=-=-=-=-=-=-=-=-=-=-
 
         clean = self.load_burst(name).to(device)
         noisy = clean + sigma * th.randn_like(clean)
@@ -110,10 +115,11 @@ class TestAgg0(unittest.TestCase):
         model_ntire = get_lidia_model_ntire(device,im_shape,sigma)
         model_nl = get_lidia_model_nl(device,im_shape,sigma)
 
+        # -=-=-=-=-=-=-=-=-=-=-=-
         #
-        # -- Execute --
+        #        Execute
         #
-
+        # -=-=-=-=-=-=-=-=-=-=-=-
 
         #
         # -- ground-truth --
@@ -157,9 +163,11 @@ class TestAgg0(unittest.TestCase):
         nl_fold = nl_fold.detach()
         nl_agg0 = rearrange(nl_agg0,'t (h w) k d -> t h w k d',h=hp).detach()/30.
 
+        # -=-=-=-=-=-=-=-=-=-=-=-
         #
-        # -- Viz --
+        #     Vizualization
         #
+        # -=-=-=-=-=-=-=-=-=-=-=-
 
         # # -- fold --
         # error = th.abs(ntire_fold - nl_fold)/255.
@@ -178,6 +186,83 @@ class TestAgg0(unittest.TestCase):
         # error = repeat(error[...,0],'t h w -> t c h w',c=3)
         # save_burst(error,"output/tests/agg0/","error_agg")
 
+        # -=-=-=-=-=-=-=-=-=-=-=-
+        #
+        #      Compare
+        #
+        # -=-=-=-=-=-=-=-=-=-=-=-
+
+        # -- patches  --
+        error = (nl_agg0 - ntire_agg0)**2
+        error = error.sum().item()
+        assert error < 1e-10
+
+
+    def run_agg0_dnls(self,name,sigma,device):
+
+        #
+        # -- Prepare --
+        #
+
+        clean = self.load_burst(name).to(device)
+        noisy = clean + sigma * th.randn_like(clean)
+        t,c,h,w = clean.shape
+        im_shape = noisy.shape
+
+        # -- load model --
+        model_ntire = get_lidia_model_ntire(device,im_shape,sigma)
+        model_nl = get_lidia_model_nl(device,im_shape,sigma)
+
+        # -- load model --
+        model_ntire = get_lidia_model_ntire(device,im_shape,sigma)
+        model_nl = get_lidia_model_nl(device,im_shape,sigma)
+
+        #
+        # -- Execute --
+        #
+
+
+        #
+        # -- ground-truth --
+        #
+
+        # -- patches --
+        noisy_mod = (noisy.clone()/255.-0.5)/0.5
+        noisy_mod -= noisy_mod.mean(dim=(-2,-1),keepdim=True)
+        ntire_output = model_ntire.run_nn0(noisy)
+        ntire_patches = ntire_output[0]
+        ntire_dists = ntire_output[1]
+        ntire_inds = ntire_output[2]
+        t,hp,wp,k,d = ntire_patches.shape
+
+        # -- agg --
+        ha,wa = 72,72
+        ipatches = rearrange(ntire_patches,'t h w k d -> t (h w) k d')
+        idists = rearrange(ntire_dists,'t h w k -> t (h w) k')
+        ntire_agg0,ntire_s0,ntire_fold = model_ntire.run_agg0(ipatches,idists,ha,wa)
+        ntire_fold = ntire_fold.detach()
+        ntire_agg0 = rearrange(ntire_agg0,'t (h w) k d -> t h w k d',h=hp).detach()/30.
+
+        #
+        # -- comparison --
+        #
+
+        # -- patches --
+        noisy_mod = (noisy.clone()/255.-0.5)/0.5
+        noisy_mod -= noisy_mod.mean(dim=(-2,-1),keepdim=True)
+        nl_output = model_nl.run_nn0_dnls_search(noisy)
+        nl_patches = nl_output[0]
+        nl_dists = nl_output[1]
+        nl_inds = nl_output[2]
+
+        # -- agg --
+        ha,wa = 72,72
+        ipatches = rearrange(nl_patches,'t h w k d -> t (h w) k d')
+        iinds = rearrange(nl_inds,'t h w k tr -> t (h w) k tr')
+        idists = rearrange(nl_dists,'t h w k -> t (h w) k')
+        nl_agg0,nl_s0,nl_fold = model_nl.run_agg0(ipatches,idists,iinds,64,64)
+        nl_fold = nl_fold.detach()
+        nl_agg0 = rearrange(nl_agg0,'t (h w) k d -> t h w k d',h=hp).detach()/30.
 
         #
         # -- Compare --
@@ -188,38 +273,3 @@ class TestAgg0(unittest.TestCase):
         error = error.sum().item()
         assert error < 1e-10
 
-
-
-    def run_agg0_dnl_nn(self,name,sigma,device):
-
-        # -- get data --
-        ps = 5
-        clean = self.load_burst(name).to(device)
-        noisy = clean + sigma * th.randn_like(clean)
-        t,c,h,w = clean.shape
-        im_shape = noisy.shape
-
-        # -- load model --
-        model_ntire = get_lidia_model_ntire(device,im_shape,sigma)
-        model_nl = get_lidia_model_nl(device,im_shape,sigma)
-
-        # -- exec ntire search  --
-        ntire_output = model_ntire.run_nn1(noisy/255.)
-        ntire_patches = ntire_output[0]
-        ntire_dists = ntire_output[1]
-        ntire_inds = ntire_output[2]
-
-        # -- exec nl search  --
-        nl_output = model_nl.run_nn1_dnls_search(noisy/255.)
-        nl_patches = nl_output[0]
-        nl_dists = nl_output[1]
-        nl_inds = nl_output[2]
-
-        #
-        # -- Comparisons --
-        #
-
-        # -- 1st patch content  --
-        error = (nl_patches[...,0,:] - ntire_patches[...,0,:])**2
-        error = error.sum().item()
-        assert error < 1e-8
