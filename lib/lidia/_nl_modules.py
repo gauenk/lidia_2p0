@@ -48,13 +48,13 @@ def run_parts(self,noisy,sigma):
     #
 
     # -- [nn0 search]  --
-    output0 = self.run_nn0(noisy)
+    output0 = self.run_nn0(noisy.clone())
     patches0 = output0[0]
     dists0 = output0[1]
     inds0 = output0[2]
 
     # -- [nn1 search]  --
-    output1 = self.run_nn1(noisy)
+    output1 = self.run_nn1(noisy.clone())
     patches1 = output1[0]
     dists1 = output1[1]
     inds1 = output1[2]
@@ -71,14 +71,9 @@ def run_parts(self,noisy,sigma):
     dists1 = rearrange(dists1,'t h w k -> t (h w) k')
     inds1 = rearrange(inds1,'t h w k tr -> t (h w) k tr')
 
-    # -- adjust inds --
-    # inds0[...,1] -= 6
-    # inds0[...,2] -= 6
-
     # -- exec --
     image_dn,patches_w = self.run_pdn(patches0,dists0,inds0,
                                       patches1,dists1,inds1)
-
     #
     # -- Final Weight Aggregation --
     #
@@ -124,23 +119,30 @@ def run_parts_final(self,image_dn,patch_weights,h,w):
 #
 # -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
+def print_stats(name,tensor):
+    print(name,tensor.min().item(),
+          tensor.max().item(),tensor.mean().item())
+
 @register_method
 def run_pdn(self,patches_n0,dist0,inds0,patches_n1,dist1,inds1):
     """
     Run patch denoiser network
     """
     # -- run sep-net --
-    h,w = 72,72
+    h,w = 64,64
     agg0,s0,_ = self.run_agg0(patches_n0,dist0,inds0,h,w)
-    h,w = 76,76
-    agg1,s1,_,_ = self.run_agg1(patches_n1,dist1,inds0,h,w)
+    h,w = 64,64
+    agg1,s1,_,_ = self.run_agg1(patches_n1,dist1,inds1,h,w)
+    assert th.any(th.isnan(agg1)).item() is False
 
     # -- final output --
     inputs = th.cat((s0, s1, agg0, agg1), dim=-2)
     sep_net = self.patch_denoise_net.separable_fc_net
+    print(inputs.min(),inputs.mean(),inputs.max())
     noise = sep_net.sep_part2(inputs)
 
     # -- compute denoised patches --
+    print(noise[0,0,0])
     image_dn,patches_w = self.run_pdn_final(patches_n0,noise)
 
     return image_dn,patches_w
@@ -191,9 +193,14 @@ def run_agg1(self,patches,dist1,inds1,h,w):
     sep_net = self.patch_denoise_net.separable_fc_net
     x1 = sep_net.sep_part1_s1(wpatches)
     y_out1 = sep_net.ver_hor_agg1_pre(x1)
-    y_out1,fold_out1 = sep_net.agg1(y_out1 / weights1,dist1, inds1,h,w,both=True)
+    assert th.any(th.isnan(y_out1)).item() is False
+    assert th.any(th.isnan(y_out1/weights1)).item() is False
+    y_out1,fold_out1 = sep_net.agg1(y_out1 / weights1, dist1, inds1,h,w,both=True)
+    assert th.any(th.isnan(y_out1)).item() is False
     y_out1 = weights1 * y_out1
+    assert th.any(th.isnan(y_out1)).item() is False
     y_out1 = sep_net.ver_hor_bn_re_agg1_post(y_out1)
+    assert th.any(th.isnan(y_out1)).item() is False
 
     return y_out1,x1,fold_out1,wpatches
 
@@ -206,7 +213,7 @@ def run_agg1(self,patches,dist1,inds1,h,w):
 
 @register_method
 def run_nn0(self,image_n,train=False):
-    return self.run_nn0_dnls_search(image_n,train)
+    return self.run_nn0_lidia_search(image_n,train)
 
 @register_method
 def run_nn0_dnls_search(self,image_n,train=False):
@@ -342,7 +349,7 @@ def run_nn0_lidia_search(self,image_n,train=False):
 
 @register_method
 def run_nn1(self,image_n,train=False):
-    return self.run_nn1_dnls_search(image_n,train)
+    return self.run_nn1_lidia_search(image_n,train)
 
 @register_method
 def run_nn1_dnls_search(self,image_n,train=False):
@@ -442,6 +449,7 @@ def run_nn1_lidia_search(self,image_n,train=False):
     image_n1 = self.bilinear_conv(image_n1)
     image_n1 = image_n1.view(im_n1_b, im_n1_c, im_n1_h - 2, im_n1_w - 2)
     image_n1 = self.pad_crop1(image_n1, train, 'constant')
+
 
     #
     #  -- LIDIA Search --

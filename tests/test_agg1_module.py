@@ -137,9 +137,6 @@ class TestAgg1(unittest.TestCase):
         pad_s = 2*(ps//2) # dilation "= 2"
         ha,wa = hp+2*pad_s,wp+2*pad_s
 
-        print("ntire_dists.shape: ",ntire_dists.shape)
-        print("ntire_inds.shape: ",ntire_inds.shape)
-
         # -- agg --
         ipatches = rearrange(ntire_patches,'t h w k d -> t (h w) k d')
         idists = rearrange(ntire_dists,'t h w k -> t (h w) k')
@@ -215,6 +212,16 @@ class TestAgg1(unittest.TestCase):
         #       Compare
         #
         # -=-=-=-=-=-=-=-=-=-=-=-
+
+        # -- sep --
+        error = (nl_s1 - ntire_s1)**2
+        error = error.sum().item()
+        assert error < 1e-10
+
+        # -- fold --
+        error = (nl_fold - ntire_fold)**2
+        error = error.sum().item()
+        assert error < 1e-10
 
         # -- aggregate  --
         error = (nl_agg1 - ntire_agg1)**2
@@ -315,13 +322,13 @@ class TestAgg1(unittest.TestCase):
         error = error.sum().item()
         assert error < 1e-10
 
-
         # -- fold --
         print("ntire_fold.shape: ",ntire_fold.shape)
         print("nl_fold.shape: ",nl_fold.shape)
         print(ntire_fold[0,0,:5,:5])
         print(nl_fold[0,0,:5,:5])
-        error = th.abs(ntire_fold - nl_fold)/255.
+        error = th.abs(ntire_fold - nl_fold)
+        error /= error.max()
         save_burst(error,"output/tests/agg1/","error_fold")
         error = error.sum()
         assert error < 1e-10
@@ -343,6 +350,11 @@ class TestAgg1(unittest.TestCase):
         #       Compare
         #
         # -=-=-=-=-=-=-=-=-=-=-=-
+
+        # -- fold  --
+        error = (nl_fold - ntire_fold)**2
+        error = error.sum().item()
+        assert error < 1e-10
 
         # -- aggregate  --
         error = (nl_agg1 - ntire_agg1)**2

@@ -391,7 +391,6 @@ class NonLocalDenoiser(nn.Module):
                                                     dist_filter).squeeze(1)
 
         top_dist, top_ind = th.topk(top_dist, 14, dim=3, largest=False, sorted=True)
-        # print(top_dist[0,16,16,:])
         top_ind_rows = top_ind // neigh_patches_w
         top_ind_cols = top_ind % neigh_patches_w
         col_arange = th.arange(im_params['patches_w'], device=image_pad.device).view(1, 1, -1, 1)

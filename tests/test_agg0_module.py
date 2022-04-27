@@ -192,6 +192,16 @@ class TestAgg0(unittest.TestCase):
         #
         # -=-=-=-=-=-=-=-=-=-=-=-
 
+        # -- sep --
+        error = (nl_s0 - ntire_s0)**2
+        error = error.sum().item()
+        assert error < 1e-10
+
+        # -- fold --
+        error = (nl_fold - ntire_fold)**2
+        error = error.sum().item()
+        assert error < 1e-10
+
         # -- patches  --
         error = (nl_agg0 - ntire_agg0)**2
         error = error.sum().item()
@@ -217,10 +227,11 @@ class TestAgg0(unittest.TestCase):
         model_ntire = get_lidia_model_ntire(device,im_shape,sigma)
         model_nl = get_lidia_model_nl(device,im_shape,sigma)
 
+        # -=-=-=-=-=-=-=-=-=-=-=-
         #
-        # -- Execute --
+        #        Execute
         #
-
+        # -=-=-=-=-=-=-=-=-=-=-=-
 
         #
         # -- ground-truth --
@@ -264,9 +275,29 @@ class TestAgg0(unittest.TestCase):
         nl_fold = nl_fold.detach()
         nl_agg0 = rearrange(nl_agg0,'t (h w) k d -> t h w k d',h=hp).detach()/30.
 
+        # -=-=-=-=-=-=-=-=-=-=-=-
         #
-        # -- Compare --
+        #     Vizualization
         #
+        # -=-=-=-=-=-=-=-=-=-=-=-
+
+        print("nl_fold.shape: ",nl_fold.shape)
+        print("ntire_fold.shape: ",ntire_fold.shape)
+        delta = th.abs(nl_fold - ntire_fold)
+        delta /= delta.max()
+        save_burst(delta,"output/tests/agg0","error_fold")
+
+        # -=-=-=-=-=-=-=-=-=-=-=-
+        #
+        #      Compare
+        #
+        # -=-=-=-=-=-=-=-=-=-=-=-
+
+        # -- fold  --
+        error = (nl_fold - ntire_fold)**2
+        print(error.max())
+        error = error.sum().item()
+        assert error < 1e-10
 
         # -- patches  --
         error = (nl_agg0 - ntire_agg0)**2

@@ -164,9 +164,31 @@ class TestNn0(unittest.TestCase):
         nl_dists = nl_output[1]
         nl_inds = nl_output[2]
 
+
+        # -=-=-=-=-=-=-=-=-=-=-=-
         #
-        # -- Comparisons --
+        #        Viz
         #
+        # -=-=-=-=-=-=-=-=-=-=-=-
+
+        # -- error --
+        error = th.abs(ntire_patches - nl_patches)
+        args = th.where(error > 1e-2)
+        print(args)
+        ti = args[0][0].item()
+        hi = args[1][0].item()
+        wi = args[2][0].item()
+        ki = args[3][0].item()
+        print(ti,hi,wi,ki)
+        print(ntire_dists[ti,hi,wi])
+        print(nl_dists[ti,hi,wi])
+
+
+        # -=-=-=-=-=-=-=-=-=-=-=-
+        #
+        #     Comparisons
+        #
+        # -=-=-=-=-=-=-=-=-=-=-=-
 
         """
         We can't do direct comparisons because equal dist

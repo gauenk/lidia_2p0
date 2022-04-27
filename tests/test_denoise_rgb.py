@@ -140,11 +140,6 @@ class TestLidiaDenoiseRgb(unittest.TestCase):
         print("clean.shape: ",clean.shape)
         noisy = clean + sigma * th.randn_like(clean)
 
-        # -- some stats --
-        noisy_s = (noisy/255. - 0.5)/0.5
-        noisy_s -= noisy_s.mean((-1,-2),True)
-        print_stats("noisy",noisy_s)
-
         # -- load model --
         im_shape = noisy.shape
         model = get_lidia_model_nl(device,im_shape,sigma)
@@ -152,6 +147,9 @@ class TestLidiaDenoiseRgb(unittest.TestCase):
         # -- exec denos --
         deno_def = lidia.denoise(noisy.clone(),sigma,ftype="ntire2020").detach()
         deno_steps = model.run_parts(noisy.clone(),sigma).detach()
+
+        print(deno_def[0,0,:3,:3])
+        print(deno_steps[0,0,:3,:3])
 
         # -- save for viz --
         save_burst(deno_def,SAVE_DIR,"deno_default")
@@ -171,7 +169,7 @@ class TestLidiaDenoiseRgb(unittest.TestCase):
         # -- test 1 --
         name,sigma = "davis_baseball_64x64",15.
         # self.exec_lidia_denoise(name,sigma)
-        # self.exec_ntire_stepwise_check(name,sigma)
+        self.exec_ntire_stepwise_check(name,sigma)
         self.exec_nl_stepwise_check(name,sigma)
 
 

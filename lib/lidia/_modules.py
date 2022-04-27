@@ -125,12 +125,9 @@ def run_pdn(self,patches_n0,dist0,inds0,patches_n1,dist1,inds1):
     agg1,s1,_,_ = self.run_agg1(patches_n1,dist1,h,w)
 
     # -- final output --
-    print("s0.shape: ",s0.shape)
-    print("s1.shape: ",s1.shape)
-    print("agg0.shape: ",agg0.shape)
-    print("agg1.shape: ",agg1.shape)
     inputs = th.cat((s0, s1, agg0, agg1), dim=-2)
     sep_net = self.patch_denoise_net.separable_fc_net
+    print(inputs.min(),inputs.mean(),inputs.max())
     noise = sep_net.sep_part2(inputs)
 
     # -- compute denoised patches --
