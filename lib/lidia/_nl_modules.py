@@ -54,12 +54,14 @@ def run_parts(self,noisy,sigma,srch_img=None,flows=None,train=False,rescale=True
     patches0 = output0[0]
     dists0 = output0[1]
     inds0 = output0[2]
+    params0 = output0[3]
 
     # -- [nn1 search]  --
     output1 = self.run_nn1(noisy.clone(),srch_img.clone(),flows,train)
     patches1 = output1[0]
     dists1 = output1[1]
     inds1 = output1[2]
+    params1 = output1[3]
 
     #
     # -- Separable ConvNet --
@@ -74,14 +76,14 @@ def run_parts(self,noisy,sigma,srch_img=None,flows=None,train=False,rescale=True
     inds1 = rearrange(inds1,'t h w k tr -> t (h w) k tr')
 
     # -- exec --
-    image_dn,patches_w = self.run_pdn(patches0,dists0,inds0,
-                                      patches1,dists1,inds1)
+    image_dn,patches_w = self.run_pdn(patches0,dists0,inds0,params0,
+                                      patches1,dists1,inds1,params1)
     #
     # -- Final Weight Aggregation --
     #
 
     h,w = 64,64
-    image_dn = self.run_parts_final(image_dn,patches_w,inds0,h,w)
+    image_dn = self.run_parts_final(image_dn,patches_w,inds0,params0)
 
     # -- normalize for output ---
     image_dn += means
@@ -91,10 +93,9 @@ def run_parts(self,noisy,sigma,srch_img=None,flows=None,train=False,rescale=True
 
 
 @register_method
-def run_parts_final(self,image_dn,patch_weights,inds,h,w):
+def run_parts_final(self,image_dn,patch_weights,inds,params):
 
     # -- prepare --
-    nump = 68 # ??
     c = 3
     ps = self.patch_w
     pdim = image_dn.shape[-1]
@@ -107,26 +108,22 @@ def run_parts_final(self,image_dn,patch_weights,inds,h,w):
     t,hw,k,tr = inds.shape
     inds = rearrange(inds[...,0,:],'t p tr -> (t p) 1 tr').clone()
     zeros = th.zeros_like(inds[...,0])
-    hp = int(np.sqrt(hw))
-    wp = hp
-    # image_dn = rearrange(image_dn,'t (c h w) p -> (t p) 1 1 c h w',h=ps,w=ps)
-    # wpatch = rearrange(patch_weights,'t (c h w) p -> (t p) 1 1 c h w',h=ps,w=ps)
+    image_dn = rearrange(image_dn,'t (c h w) p -> (t p) 1 1 c h w',h=ps,w=ps)
+    wpatch = rearrange(patch_weights,'t (c h w) p -> (t p) 1 1 c h w',h=ps,w=ps)
 
     # -- inds --
     inds[:,:,1] += (ps//2)
     inds[:,:,2] += (ps//2)
 
     # -- fold --
-    h,w = hp+2*(ps//2),wp+2*(ps//2)
+    h,w = params['pixels_h'],params['pixels_w']
     shape = (t,c,h,w)
-    image_dn = fold(image_dn,(h,w),(ps,ps))
-    patch_cnt = fold(patch_weights,(h,w),(ps,ps))
-    # image_dn,_ = dnls.simple.gather.run(image_dn, zeros, inds, shape=shape)
-    # patch_cnt,_ = dnls.simple.gather.run(wpatch, zeros, inds, shape=shape)
+    image_dn,_ = dnls.simple.gather.run(image_dn, zeros, inds, shape=shape)
+    patch_cnt,_ = dnls.simple.gather.run(wpatch, zeros, inds, shape=shape)
 
     # -- crop --
-    row_offs = min(ps - 1, nump - 1)
-    col_offs = min(ps - 1, nump - 1)
+    row_offs = min(ps - 1, params['patches_h'] - 1)
+    col_offs = min(ps - 1, params['patches_w'] - 1)
     image_dn = crop_offset(image_dn, (row_offs,), (col_offs,))
     image_dn /= crop_offset(patch_cnt, (row_offs,), (col_offs,))
 
@@ -143,14 +140,16 @@ def print_stats(name,tensor):
           tensor.max().item(),tensor.mean().item())
 
 @register_method
-def run_pdn(self,patches_n0,dist0,inds0,patches_n1,dist1,inds1):
+def run_pdn(self,patches_n0,dist0,inds0,params0,patches_n1,dist1,inds1,params1):
     """
     Run patch denoiser network
     """
     # -- run sep-net --
-    h,w = 64,64
+    h,w = params0['pixels_h'],params0['pixels_w']
     agg0,s0,_ = self.run_agg0(patches_n0,dist0,inds0,h,w)
-    h,w = 64,64
+    h,w = params1['pixels_h'],params1['pixels_w']
+    print("params1")
+    print(params1)
     agg1,s1,_,_ = self.run_agg1(patches_n1,dist1,inds1,h,w)
     assert th.any(th.isnan(agg1)).item() is False
 
@@ -260,8 +259,6 @@ def run_nn0_dnls_search(self,image_n,srch_img=None,flows=None,train=False):
         img_nn0 = self.rgb2gray(image_n0)
     else:
         img_nn0 = image_n0
-    print("[dnls] img_nn0.shape: ",img_nn0.shape)
-    print(params)
 
     # -- get search inds --
     pad = ps//2
@@ -312,7 +309,7 @@ def run_nn0_dnls_search(self,image_n,srch_img=None,flows=None,train=False):
     top_ind0[...,1] -= sw
     top_ind0[...,2] -= sw
 
-    return patches,patch_dist0,top_ind0
+    return patches,patch_dist0,top_ind0,params
 
 @register_method
 def run_nn0_lidia_search(self,image_n,train=False):
@@ -382,7 +379,7 @@ def run_nn0_lidia_search(self,image_n,train=False):
     ip0 = rearrange(ip0,'t (h w) k d -> t h w k d',h=h)
     patch_dist0 = rearrange(patch_dist0,'t (h w) k -> t h w k',h=h)
 
-    return ip0,patch_dist0,dnls_inds
+    return ip0,patch_dist0,dnls_inds,params
 
 @register_method
 def run_nn1(self,image_n,srch_img=None,flows=None,train=False):
@@ -484,7 +481,7 @@ def run_nn1_dnls_search(self,image_n,srch_img=None,flows=None,train=False):
     nlInds[...,2] -= sw
     print("patches.shape: ",patches.shape)
 
-    return patches,nlDists,nlInds
+    return patches,nlDists,nlInds,params
 
 @register_method
 def run_nn1_lidia_search(self,image_n,train=False):
@@ -600,5 +597,5 @@ def run_nn1_lidia_search(self,image_n,train=False):
     inds[...,1] -= (2*neigh_pad + 2*pad)
     inds[...,2] -= (2*neigh_pad + 2*pad)
 
-    return ip1,top_dist1,inds
+    return ip1,top_dist1,inds,params
 

@@ -107,8 +107,6 @@ class Aggregation1(nn.Module):
         images, patches, hor_f, ver_f = x.shape
         x = x.permute(0, 2, 3, 1).view(images * hor_f, ver_f, patches)
         # print("[agg1:2] x.shape: ",x.shape)
-
-
         # isize = (68,68) # (pixels_h, pixels_w)
         # ksize = (self.patch_w, self.patch_w)
         # dil = (1,1)
@@ -132,6 +130,7 @@ class Aggregation1(nn.Module):
         patch_cnt = th.ones(x[0:1, ...].shape, device=x.device)
         patch_cnt = fold(patch_cnt, isize, ksize, dilation=dil,padding=pads)
         x_v2 = fold(x, isize, ksize, dilation=dil,padding=pads) / patch_cnt
+        print("[mod_agg1] folded_x.shape: ",x_v2.shape)
         x = x_v2
 
         # -- view --

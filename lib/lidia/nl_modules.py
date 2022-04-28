@@ -125,9 +125,7 @@ class Aggregation1(nn.Module):
         # tag-agg1
 
         # -- shapes --
-        pt,ps = 1,self.patch_w
-        t,hp = x.shape[0],int(np.sqrt(x.shape[1]))
-        wp = hp
+        pt,ps,t = 1,self.patch_w,x.shape[0]
 
         # -- unpack images --
         images, patches, hor_f, ver_f = x.shape
@@ -144,9 +142,10 @@ class Aggregation1(nn.Module):
         _nlInds[...,2] += pad
 
         # -- gather output size --
-        hp = pixels_h + 2*(2*(ps//2)) + 2*(ps//2)
-        wp = pixels_w + 2*(2*(ps//2)) + 2*(ps//2)
-        shape = (t,3,hp,wp)
+        # hp = pixels_h + 2*(2*(ps//2)) + 2*(ps//2)
+        # wp = pixels_w + 2*(2*(ps//2)) + 2*(ps//2)
+        shape = (t,3,pixels_h,pixels_w)
+        print("[nlmod_agg1] shape: ",shape)
 
         # -- gather --
         zeros = th.zeros_like(_nlDists)
