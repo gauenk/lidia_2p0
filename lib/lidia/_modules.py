@@ -47,18 +47,21 @@ def run_parts(self,noisy,sigma,train=False):
     patches0 = output0[0]
     dists0 = output0[1]
     inds0 = output0[2]
+    params0 = output0[3]
 
     # -- [nn1 search]  --
     output1 = self.run_nn1(noisy,train=train)
     patches1 = output1[0]
     dists1 = output1[1]
     inds1 = output1[2]
+    params1 = output1[3]
 
     #
     # -- Separable ConvNet --
     #
 
     # -- reshape --
+    shape = patches0.shape
     patches0 = rearrange(patches0,'t h w k d -> t (h w) k d')
     dists0 = rearrange(dists0,'t h w k -> t (h w) k')
     inds0 = rearrange(inds0,'t h w k tr -> t (h w) k tr')
@@ -67,15 +70,15 @@ def run_parts(self,noisy,sigma,train=False):
     inds1 = rearrange(inds1,'t h w k tr -> t (h w) k tr')
 
     # -- exec --
-    image_dn,patches_w = self.run_pdn(patches0,dists0,inds0,
-                                      patches1,dists1,inds1)
+    image_dn,patches_w = self.run_pdn(patches0,dists0,inds0,params0,
+                                      patches1,dists1,inds1,params1)
 
     #
     # -- Final Weight Aggregation --
     #
 
     h,w = 64,64
-    image_dn = self.run_parts_final(image_dn,patches_w,h,w)
+    image_dn = self.run_parts_final(image_dn,patches_w,params0)
 
     # -- normalize for output ---
     image_dn += means
@@ -85,10 +88,9 @@ def run_parts(self,noisy,sigma,train=False):
 
 
 @register_method
-def run_parts_final(self,image_dn,patch_weights,h,w):
+def run_parts_final(self,image_dn,patch_weights,params):
 
     # -- prepare --
-    np = 68 # ??
     ps = self.patch_w
     pdim = image_dn.shape[-1]
     image_dn = image_dn * patch_weights
@@ -97,16 +99,13 @@ def run_parts_final(self,image_dn,patch_weights,h,w):
     image_dn = image_dn.transpose(2, 1)
 
     # -- fold --
-    print("image_dn.shape: ",image_dn.shape)
-    print("patch_weights.shape: ",patch_weights.shape)
-    h,w = 72,72
+    h,w = params['pixels_h'],params['pixels_w']
     image_dn = fold(image_dn, (h,w),(ps,ps))
-    print("[folded] image_dn.shape: ",image_dn.shape)
     patch_cnt = fold(patch_weights, (h,w),(ps,ps))
 
     # -- crop --
-    row_offs = min(ps - 1, np - 1)
-    col_offs = min(ps - 1, np - 1)
+    row_offs = min(ps - 1, params['patches_h'] - 1)
+    col_offs = min(ps - 1, params['patches_w'] - 1)
     image_dn = crop_offset(image_dn, (row_offs,), (col_offs,))
     image_dn /= crop_offset(patch_cnt, (row_offs,), (col_offs,))
 
@@ -119,14 +118,14 @@ def run_parts_final(self,image_dn,patch_weights,h,w):
 # -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 @register_method
-def run_pdn(self,patches_n0,dist0,inds0,patches_n1,dist1,inds1):
+def run_pdn(self,patches_n0,dist0,inds0,params0,patches_n1,dist1,inds1,params1):
     """
     Run patch denoiser network
     """
     # -- run sep-net --
-    h,w = 72,72
+    h,w = params0['pixels_h'],params0['pixels_w']
     agg0,s0,_ = self.run_agg0(patches_n0,dist0,h,w)
-    h,w = 76,76
+    h,w = params1['pixels_h'],params1['pixels_w']
     agg1,s1,_,_ = self.run_agg1(patches_n1,dist1,h,w)
 
     # -- final output --
@@ -258,7 +257,7 @@ def run_nn0(self,image_n,train=False):
     patch_dist0 = rearrange(patch_dist0,'t (h w) k -> t h w k',h=h)
     inds3d = rearrange(inds3d,'(t h w) k tr -> t h w k tr',t=t,h=h)
 
-    return patches,patch_dist0,inds3d
+    return patches,patch_dist0,inds3d,params
 
 @register_method
 def run_nn1(self,image_n,train=False):
@@ -280,8 +279,8 @@ def run_nn1(self,image_n,train=False):
     image_n1 = self.pad_crop1(image_n1, train, 'constant')
 
     # -- img-based parameters --
-    im_params1 = get_image_params(image_n1, 2 * self.patch_w - 1, 28)
-    im_params1['pad_patches_w_full'] = im_params1['pad_patches_w']
+    params = get_image_params(image_n1, 2 * self.patch_w - 1, 28)
+    params['pad_patches_w_full'] = params['pad_patches_w']
 
     # -- get search image  --
     if self.arch_opt.rgb: img_nn1 = self.rgb2gray(image_n1)
@@ -294,28 +293,28 @@ def run_nn1(self,image_n,train=False):
     img_nn1_11 = img_nn1[:, :, 1::2, 1::2].clone()
 
     # -- get split image parameters --
-    im_params1_00 = get_image_params(img_nn1_00, self.patch_w, neigh_pad)
-    im_params1_10 = get_image_params(img_nn1_10, self.patch_w, neigh_pad)
-    im_params1_01 = get_image_params(img_nn1_01, self.patch_w, neigh_pad)
-    im_params1_11 = get_image_params(img_nn1_11, self.patch_w, neigh_pad)
-    im_params1_00['pad_patches_w_full'] = im_params1['pad_patches_w']
-    im_params1_10['pad_patches_w_full'] = im_params1['pad_patches_w']
-    im_params1_01['pad_patches_w_full'] = im_params1['pad_patches_w']
-    im_params1_11['pad_patches_w_full'] = im_params1['pad_patches_w']
+    params_00 = get_image_params(img_nn1_00, self.patch_w, neigh_pad)
+    params_10 = get_image_params(img_nn1_10, self.patch_w, neigh_pad)
+    params_01 = get_image_params(img_nn1_01, self.patch_w, neigh_pad)
+    params_11 = get_image_params(img_nn1_11, self.patch_w, neigh_pad)
+    params_00['pad_patches_w_full'] = params['pad_patches_w']
+    params_10['pad_patches_w_full'] = params['pad_patches_w']
+    params_01['pad_patches_w_full'] = params['pad_patches_w']
+    params_11['pad_patches_w_full'] = params['pad_patches_w']
 
     # -- run knn search! --
-    top_dist1_00, top_ind1_00 = self.find_nn(img_nn1_00, im_params1_00,
+    top_dist1_00, top_ind1_00 = self.find_nn(img_nn1_00, params_00,
                                              self.patch_w, scale=1, case='00')
-    top_dist1_10, top_ind1_10 = self.find_nn(img_nn1_10, im_params1_10,
+    top_dist1_10, top_ind1_10 = self.find_nn(img_nn1_10, params_10,
                                              self.patch_w, scale=1, case='10')
-    top_dist1_01, top_ind1_01 = self.find_nn(img_nn1_01, im_params1_01,
+    top_dist1_01, top_ind1_01 = self.find_nn(img_nn1_01, params_01,
                                              self.patch_w, scale=1, case='01')
-    top_dist1_11, top_ind1_11 = self.find_nn(img_nn1_11, im_params1_11,
+    top_dist1_11, top_ind1_11 = self.find_nn(img_nn1_11, params_11,
                                              self.patch_w, scale=1, case='11')
 
     # -- aggregate results [dists] --
-    top_dist1 = th.zeros(im_params1['batches'], im_params1['patches_h'],
-                            im_params1['patches_w'], neigh_pad, device=device)
+    top_dist1 = th.zeros(params['batches'], params['patches_h'],
+                            params['patches_w'], neigh_pad, device=device)
     top_dist1 = top_dist1.fill_(float('nan'))
     top_dist1[:, 0::2, 0::2, :] = top_dist1_00
     top_dist1[:, 1::2, 0::2, :] = top_dist1_10
@@ -323,7 +322,7 @@ def run_nn1(self,image_n,train=False):
     top_dist1[:, 1::2, 1::2, :] = top_dist1_11
 
     # -- aggregate results [inds] --
-    ipp = im_params1['pad_patches']
+    ipp = params['pad_patches']
     top_ind1 = ipp * th.ones(top_dist1.shape,dtype=th.int64,device=device)
     top_ind1[:, 0::2, 0::2, :] = top_ind1_00
     top_ind1[:, 1::2, 0::2, :] = top_ind1_10
@@ -370,7 +369,7 @@ def run_nn1(self,image_n,train=False):
     ip1 = rearrange(ip1,'t (h w) k d -> t h w k d',h=h)
     print("[ip1] ip1.shape: ",ip1.shape)
 
-    return ip1,pdist,top_ind1
+    return ip1,pdist,top_ind1,params
 
 
 

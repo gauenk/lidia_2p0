@@ -188,11 +188,12 @@ class TestLidiaDenoiseRgb(unittest.TestCase):
         name,sigma = "davis_baseball_64x64",15.
         name = "davis_salsa"
         # self.exec_lidia_denoise(name,sigma)
-        # self.exec_ntire_stepwise_check(name,sigma,False)
-        # self.exec_nl_stepwise_check(name,sigma)
+        self.exec_ntire_stepwise_check(name,sigma,False)
+        # self.exec_nl_stepwise_check(name,sigma,False)
 
         # -- train true --
         self.exec_ntire_stepwise_check(name,sigma,True)
+        # self.exec_nl_stepwise_check(name,sigma,True)
 
 
 
