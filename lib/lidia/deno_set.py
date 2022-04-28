@@ -15,7 +15,7 @@ from einops import rearrange
 # from .nl_model_io import select_sigma,get_lidia_model,get_default_opt
 from .model_io import select_sigma,get_lidia_model,get_default_opt
 
-def denoise_ntire2020(noisy,sigma,pm_vid=None,flows=None):
+def denoise_ntire2020(noisy,sigma,pm_vid=None,flows=None,train=False):
 
     # -- types --
     nosiy = noisy.type(th.float32)
@@ -30,8 +30,9 @@ def denoise_ntire2020(noisy,sigma,pm_vid=None,flows=None):
 
     # -- denoise --
     with th.no_grad():
-        deno_n = nl_denoiser(noisy, train=False, save_memory=False,
-                             max_chunk=opt.max_chunk, srch_img=pm_vid, srch_flows=flows)
+        deno_n = nl_denoiser(noisy, train=train, save_memory=False,
+                             max_chunk=opt.max_chunk, srch_img=pm_vid,
+                             srch_flows=flows)
     return deno_n
 
 def denoise_npc(noisy,sigma,pm_basic):

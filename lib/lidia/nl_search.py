@@ -15,15 +15,17 @@ from torch.nn.functional import pad as pad_fxn
 # from torchvision.transforms.functional import pad as pad_fxn
 
 # -- lidia --
+import lidia
 import lidia.alloc_dnls as alloc
 import lidia.search_mask as search_mask
 import lidia.search as search
 import lidia.utils as utils
+from lidia.utils.lidia_utils import calc_padding_rgb,get_image_params
 from lidia.params import get_params,get_args
-
+from .nl_modules import NonLocalDenoiser as NLD
 
 def run_search(noisy, sigma,
-               pm_vid=None, flows=None, gpuid=0, clean=None, verbose=True):
+               pm_vid=None, flows=None, gpuid=0, clean=None, train=False, verbose=True):
     """
     Lightweight Image Denoising with Instance Adaptation (LIDIA)
 
@@ -56,8 +58,8 @@ def run_search(noisy, sigma,
     noisy -= means
 
     # -- prepare image --
-    noisy_nn0,clean_nn0,indCor0 = get_lidia_padded_img_nn0(noisy,clean,args)
-    noisy_nn1,clean_nn1,indCor1 = get_lidia_padded_img_nn1(noisy,clean,args)
+    noisy_nn0,clean_nn0,params0 = get_nn0(noisy,clean,train,args)
+    noisy_nn1,clean_nn1,params1 = get_nn1(noisy,clean,train,args)
 
     # -- allocs and args --
     images = alloc.allocate_images(noisy,means,None,clean)
@@ -65,12 +67,12 @@ def run_search(noisy, sigma,
     images.clean_nn0 = clean_nn0
     images.noisy_nn1 = noisy_nn1
     images.clean_nn1 = clean_nn1
-    print("noisy.shape: ",noisy.shape)
-    print("images.noisy_nn0.shape: ",images.noisy_nn0.shape)
 
     # -- number of elems --
-    hb = h + 2*(args.ps//2)
-    wb = w + 2*(args.ps//2)
+    hb,wb = params0['patches_h'],params0['patches_w']
+    print(params0)
+    print(params1)
+
 
     # -- get model --
     args.lidia_model = None
@@ -89,8 +91,8 @@ def run_search(noisy, sigma,
     # -- mask slices --
 
     # -- prepare masks [dil=1] --
-    mask0 = get_search_mask(noisy,noisy_nn0,args)
-    mask1 = get_search_mask(noisy,noisy_nn1,args)
+    mask0,hs0,ws0 = get_search_mask(noisy,noisy_nn0,params0,args)
+    mask1,hs1,ws1 = get_search_mask(noisy,noisy_nn1,params1,args)
     masks = [mask0,mask1]
 
     # -- param --
@@ -105,9 +107,11 @@ def run_search(noisy, sigma,
     # -- batching params --
     nelems,nbatches = utils.batching.batch_params(mask1,args.bsize,args.nstreams)
     cmasked_prev = nelems
+    print(mask1[0].sum())
 
     # -- exec search --
     for level in range(args.nlevels):
+        print("LEVEL: ",level)
         key = patches.levels[level]
         args.dilation = search_dilations[level]
         mask_l = masks[level]
@@ -118,96 +122,91 @@ def run_search(noisy, sigma,
 
     # -- rescale inds --
     i0 = bufs["s0"].inds.view(t,hb,wb,args.k,3)
-    i0[...,1] -= indCor0[0]
-    i0[...,2] -= indCor0[1]
+    i0[...,1] -= hs0
+    i0[...,2] -= ws0
     i1 = bufs["s1"].inds.view(t,hb,wb,args.k,3)
-    i1[...,1] -= indCor1[0]
-    i1[...,2] -= indCor1[1]
+    i1[...,1] -= hs1
+    i1[...,2] -= ws1
+    print(i0[0,:3,:3,0])
+    print(i1[0,:3,:3,0])
 
     # -- packup results --
     res = edict()
-    res.p0 = patches["s0"].noisy
+    res.p0 = patches["s0"].noisy.view(t,hb,wb,args.k,-1)
     res.i0 = i0
     res.d0 = bufs["s0"].vals.view(t,hb,wb,args.k)
-    res.p1 = patches["s1"].noisy
+    res.p1 = patches["s1"].noisy.view(t,hb,wb,args.k,-1)
     res.i1 = i1
     res.d1 = bufs["s1"].vals.view(t,hb,wb,args.k)
 
     return res
 
-
-def get_lidia_padded_img_nn0(noisy,clean,args):
-    pad_r = 2*(args.ps//2)
-    pad_c = 2*(args.ps//2)
-    noisy = pad_fxn(noisy,[pad_r,]*4,"reflect")
-    noisy = pad_fxn(noisy,[pad_c,]*4,"constant",-1)
-    if not(clean is None):
-        clean = pad_fxn(clean,[pad_r,]*4,"reflect")
-        clean = pad_fxn(clean,[pad_c,]*4,"constant",-1)
-    print("[padding nn0] noisy.shape: ",noisy.shape)
-
-    # -- indices correction --
-    indCor = [6,6]
-
-    return noisy,clean,indCor
-
-def get_search_mask(noisy,noisy_pad,args):
+def get_search_mask(noisy,noisy_pad,iparams,args):
 
     # -- get base shape --
     t,c,h,w = noisy.shape
-    hb = h + 2*(args.ps//2)
-    wb = w + 2*(args.ps//2)
+    hb,wb = iparams['patches_h'],iparams['patches_w']
+    ppad = 2*(args.ps//2) # patches used to pad interior image
+    # hb,wb = h+ppad,w+ppad
 
     # -- get excess pix --
     _,_,hp,wp = noisy_pad.shape
-    hs = (hp - hb)//2
-    ws = (wp - wb)//2
+    hs,ws = (hp - hb)//2,(wp - wb)//2
+    print("-"*30)
+    print("noisy.shape: ",noisy.shape)
+    print("noisy_pad.shape: ",noisy_pad.shape)
+    print(hs,ws)
+    print(hb,wb)
+    print(iparams)
+    print("-"*30)
 
     # -- compute center of base mask --
     hslice = slice(hs,hb+hs)
-    wslice = slice(hs,wb+hs)
+    wslice = slice(ws,wb+ws)
 
     # -- create mask --
     t,device = noisy.shape[0],noisy.device
     mask = th.zeros((t,hp,wp),device=device,dtype=th.bool)
     mask[:,hslice,wslice] = 1
 
-    return mask
+    return mask,hs,ws
 
-def pad_crop1_reflect(noisy,args):
-    bilinear_pad = 1
-    averaging_pad = (args.ps - 1) // 2
-    patch_w_scale_1 = 2 * args.ps - 1
-    find_nn_pad = (patch_w_scale_1 - 1) // 2
-    reflect_pad = [averaging_pad + bilinear_pad + find_nn_pad] * 4
-    noisy = pad_fxn(noisy, reflect_pad, 'reflect')
-    return noisy
+def get_nn0(noisy,clean,train,args):
 
-def pad_crop1_constant(noisy,args):
-    constant_pad = [28] * 4
-    noisy = pad_fxn(noisy, constant_pad, 'constant', -1)
-    return noisy
-
-def get_lidia_padded_img_nn1(noisy,clean,args):
-
-    # -- pad --
-    noisy = pad_crop1_reflect(noisy,args)
-    print("[reflect] noisy.shape: ",noisy.shape)
-
-    # -- filter --
-    t,c,h,w = noisy.shape
-    noisy = noisy.view(t*c,1,h,w)
-    noisy = exec_bilinear_conv(noisy)
-    noisy = noisy.view(t,c,h-2,w-2)
-    print("[reflect] noisy.shape: ",noisy.shape)
-
-    # -- bilinear conv & crop --
-    noisy = pad_crop1_constant(noisy, args)
+    # -- pad-crop noisy --
+    neigh_pad = 14
+    pad_offs = calc_padding_rgb(args.ps)
+    noisy = NLD._pad_crop0(noisy,pad_offs,train,args.ps)
+    if not(clean is None):
+        clean = NLD._pad_crop0(clean,pad_offs,train,args.ps)
 
     # -- indices correction --
-    indCor = [32,32]
+    params = get_image_params(noisy,args.ps,neigh_pad)
 
-    return noisy,clean,indCor
+    return noisy,clean,params
+
+def get_nn1(noisy,clean,train,args):
+
+    # -- pad --
+    neigh_pad = 14
+
+    # -- noisy -
+    noisy = NLD._pad_crop1(noisy,train,'reflect',args.ps)
+    if train: noisy = noisy.contiguous()
+    noisy = exec_bilinear_conv(noisy)
+    noisy = NLD._pad_crop1(noisy,train,'constant',args.ps)
+
+    # -- noisy -
+    if not(clean is None):
+        clean = NLD._pad_crop1(clean,train,'reflect',args.ps)
+        if train: clean = clean.contiguous()
+        clean = exec_bilinear_conv(clean)
+        clean = NLD._pad_crop1(clean,train,'constant',args.ps)
+
+    # -- indices correction --
+    params = get_image_params(noisy,2*args.ps-1,2*neigh_pad)
+
+    return noisy,clean,params
 
 
 def exec_bilinear_conv(vid):

@@ -132,7 +132,6 @@ class Aggregation1(nn.Module):
         # -- unpack images --
         images, patches, hor_f, ver_f = x.shape
         # x = x.permute(0, 2, 3, 1).view(images * hor_f, ver_f, patches)
-        print("x.shape: ",x.shape)
         shape = (x.shape[0],3,pixels_h,pixels_w)
         x = rearrange(x,'t p 1 (c h w) -> (t p) 1 1 c h w',h=ps,w=ps)
         _,_,pt,_,ps,ps = x.shape
@@ -638,21 +637,29 @@ class NonLocalDenoiser(nn.Module):
 
 
     def pad_crop0(self, image, pad_offs, train):
+        return self._pad_crop0(image, pad_offs, train, self.patch_w)
+
+    @staticmethod
+    def _pad_crop0(image,pad_offs,train,patch_w):
         if not train:
-            reflect_pad = [self.patch_w - 1] * 4
+            reflect_pad = [patch_w - 1] * 4
             constant_pad = [14] * 4
-            image = nn_func.pad(nn_func.pad(image, reflect_pad, 'reflect'), constant_pad, 'constant', -1)
+            image = nn_func.pad(nn_func.pad(image, reflect_pad, 'reflect'),
+                                constant_pad, 'constant', -1)
         else:
             image = crop_offset(image, (pad_offs,), (pad_offs,))
-
         return image
 
     def pad_crop1(self, image, train, mode):
+        return self._pad_crop1(image, train, mode, self.patch_w)
+
+    @staticmethod
+    def _pad_crop1(image, train, mode, patch_w):
         if not train:
             if mode == 'reflect':
                 bilinear_pad = 1
-                averaging_pad = (self.patch_w - 1) // 2
-                patch_w_scale_1 = 2 * self.patch_w - 1
+                averaging_pad = (patch_w - 1) // 2
+                patch_w_scale_1 = 2 * patch_w - 1
                 find_nn_pad = (patch_w_scale_1 - 1) // 2
                 reflect_pad = [averaging_pad + bilinear_pad + find_nn_pad] * 4
                 image = nn_func.pad(image, reflect_pad, 'reflect')
@@ -661,7 +668,6 @@ class NonLocalDenoiser(nn.Module):
                 image = nn_func.pad(image, constant_pad, 'constant', -1)
             else:
                 assert False
-
         return image
 
     def forward(self, image_n, train=True, save_memory=False, max_chunk=None, srch_img=None, srch_flows=None):

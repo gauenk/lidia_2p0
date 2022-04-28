@@ -11,6 +11,16 @@ from einops import rearrange
 def sigma_255_to_torch(sigma_255):
     return (sigma_255 / 255) / 0.5
 
+def calc_padding_rgb(patch_w=5):
+    bilinear_pad = 1
+    averaging_pad = (patch_w - 1) // 2
+    patch_w_scale_1 = 2 * patch_w - 1
+    find_nn_pad = (patch_w_scale_1 - 1) // 2
+    total_pad0 = patch_w + 13
+    total_pad = averaging_pad + bilinear_pad + find_nn_pad + 14 * 2
+    offs = total_pad - total_pad0
+    return offs
+
 def calc_padding(arch_opt):
     patch_w = 5 if arch_opt.rgb else 7
     bilinear_pad = 1

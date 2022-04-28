@@ -75,7 +75,8 @@ class TestLidiaDenoiseRgb(unittest.TestCase):
     def exec_lidia_denoise(self,name,sigma,device="cuda:0"):
 
         # -- get data --
-        clean = self.load_burst(name).to(device)
+        clean = self.load_burst(name).to(device)[:3,:,:96,:128]
+        clean = clean.contiguous()
         print("clean.shape: ",clean.shape)
         noisy = clean + sigma * th.randn_like(clean)
 
@@ -96,7 +97,7 @@ class TestLidiaDenoiseRgb(unittest.TestCase):
         error_vals = th.sum((deno_nl - deno_def)**2).item()
         assert error_vals < 1e-10
 
-    def exec_ntire_stepwise_check(self,name,sigma,device="cuda:0"):
+    def exec_ntire_stepwise_check(self,name,sigma,train,device="cuda:0"):
         """
         Verify that running lidia using a set of
         function calls will give the same output
@@ -104,7 +105,8 @@ class TestLidiaDenoiseRgb(unittest.TestCase):
         """
 
         # -- get data --
-        clean = self.load_burst(name).to(device)
+        clean = self.load_burst(name).to(device)[:3,:,:96,:128]
+        clean = clean.contiguous()
         print("clean.shape: ",clean.shape)
         noisy = clean + sigma * th.randn_like(clean)
 
@@ -118,8 +120,12 @@ class TestLidiaDenoiseRgb(unittest.TestCase):
         model = get_lidia_model_ntire(device,im_shape,sigma)
 
         # -- exec denos --
-        deno_def = lidia.denoise(noisy.clone(),sigma,ftype="ntire2020").detach()
-        deno_steps = model.run_parts(noisy.clone(),sigma).detach()
+        deno_def = lidia.denoise(noisy.clone(),sigma,ftype="ntire2020",train=train)
+        deno_def = deno_def.detach()
+        print("deno_def.shape: ",deno_def.shape)
+        deno_steps = model.run_parts(noisy.clone(),sigma,train=train)
+        deno_steps = deno_steps.detach()
+        print("deno_steps.shape: ",deno_steps.shape)
 
         # -- save for viz --
         save_burst(deno_def,SAVE_DIR,"deno_default")
@@ -129,7 +135,7 @@ class TestLidiaDenoiseRgb(unittest.TestCase):
         error_vals = th.sum((deno_def - deno_steps)**2).item()
         assert error_vals < 1e-10
 
-    def exec_nl_stepwise_check(self,name,sigma,device="cuda:0"):
+    def exec_nl_stepwise_check(self,name,sigma,train,device="cuda:0"):
         """
         Verify that running lidia using a set of
         function calls will give the same output
@@ -138,7 +144,8 @@ class TestLidiaDenoiseRgb(unittest.TestCase):
 
         # -- get data --
         ps = 5
-        clean = self.load_burst(name).to(device)
+        clean = self.load_burst(name).to(device)[:3,:,:96,:128]
+        clean = clean.contiguous()
         print("clean.shape: ",clean.shape)
         noisy = clean + sigma * th.randn_like(clean)
 
@@ -147,8 +154,10 @@ class TestLidiaDenoiseRgb(unittest.TestCase):
         model = get_lidia_model_nl(device,im_shape,sigma)
 
         # -- exec denos --
-        deno_def = lidia.denoise(noisy.clone(),sigma,ftype="ntire2020").detach()
-        deno_steps = model.run_parts(noisy.clone(),sigma).detach()
+        deno_def = lidia.denoise(noisy.clone(),sigma,ftype="ntire2020",train=train)
+        deno_def = deno_def.detach()
+        deno_steps = model.run_parts(noisy.clone(),sigma,train=train)
+        deno_steps = deno_steps.detach()
 
         # -- save for viz --
         save_burst(deno_def,SAVE_DIR,"deno_default")
@@ -177,9 +186,13 @@ class TestLidiaDenoiseRgb(unittest.TestCase):
 
         # -- test 1 --
         name,sigma = "davis_baseball_64x64",15.
+        name = "davis_salsa"
         # self.exec_lidia_denoise(name,sigma)
-        # self.exec_ntire_stepwise_check(name,sigma)
-        self.exec_nl_stepwise_check(name,sigma)
+        # self.exec_ntire_stepwise_check(name,sigma,False)
+        # self.exec_nl_stepwise_check(name,sigma)
+
+        # -- train true --
+        self.exec_ntire_stepwise_check(name,sigma,True)
 
 
 

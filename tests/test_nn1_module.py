@@ -83,19 +83,26 @@ class TestNn1(unittest.TestCase):
 
     def test_nonlocal1(self):
         # -- params --
-        name = "davis_baseball_64x64"
+        # name = "davis_baseball_64x64"
+        name = "davis_salsa"
         sigma = 50.
         device = "cuda:0"
 
-        # -- exec --
-        self.run_nonlocal1_lidia_search(name,sigma,device)
-        self.run_nonlocal1_dnls_search(name,sigma,device)
-        self.run_proc_search(name,sigma,device)
+        # -- no-train --
+        self.run_nonlocal1_lidia_search(name,sigma,False,device)
+        self.run_nonlocal1_dnls_search(name,sigma,False,device)
+        # self.run_proc_search(name,sigma,False,device)
 
-    def run_nonlocal1_lidia_search(self,name,sigma,device):
+        # -- train --
+        self.run_nonlocal1_lidia_search(name,sigma,True,device)
+        self.run_nonlocal1_dnls_search(name,sigma,True,device)
+        # self.run_proc_search(name,sigma,True,device)
+
+    def run_nonlocal1_lidia_search(self,name,sigma,train,device):
 
         # -- get data --
         clean = self.load_burst(name).to(device)
+        clean = clean[:5,:,:96,:128].contiguous()
         noisy = clean + sigma * th.randn_like(clean)
         t,c,h,w = clean.shape
         im_shape = noisy.shape
@@ -105,13 +112,13 @@ class TestNn1(unittest.TestCase):
         model_nl = get_lidia_model_nl(device,im_shape,sigma)
 
         # -- exec ntire search  --
-        ntire_output = model_ntire.run_nn1(noisy)
+        ntire_output = model_ntire.run_nn1(noisy,train=train)
         ntire_patches = ntire_output[0]
         ntire_dists = ntire_output[1]
         ntire_inds = ntire_output[2]
 
         # -- exec nl search  --
-        nl_output = model_nl.run_nn1_lidia_search(noisy)
+        nl_output = model_nl.run_nn1_lidia_search(noisy,train=train)
         nl_patches = nl_output[0]
         nl_dists = nl_output[1]
         nl_inds = nl_output[2]
@@ -129,12 +136,12 @@ class TestNn1(unittest.TestCase):
         print(nl_dists[0,16,16])
         print(ntire_dists[0,16,16])
 
-        print("-"*20)
-        print("-"*20)
-        print(ntire_patches[0,16,16,0])
-        print(nl_patches[0,16,16,0])
-        print("-"*20)
-        print("-"*20)
+        # print("-"*20)
+        # print("-"*20)
+        # print(ntire_patches[0,16,16,0])
+        # print(nl_patches[0,16,16,0])
+        # print("-"*20)
+        # print("-"*20)
 
         #
         # -- Comparisons --
@@ -156,11 +163,12 @@ class TestNn1(unittest.TestCase):
         assert error < 1e-10
 
 
-    def run_nonlocal1_dnls_search(self,name,sigma,device):
+    def run_nonlocal1_dnls_search(self,name,sigma,train,device):
 
         # -- get data --
         ps = 5
         clean = self.load_burst(name).to(device)
+        clean = clean[:5,:,:96,:128].contiguous()
         noisy = clean + sigma * th.randn_like(clean)
         t,c,h,w = clean.shape
         im_shape = noisy.shape
@@ -170,13 +178,13 @@ class TestNn1(unittest.TestCase):
         model_nl = get_lidia_model_nl(device,im_shape,sigma)
 
         # -- exec ntire search  --
-        ntire_output = model_ntire.run_nn1(noisy/255.)
+        ntire_output = model_ntire.run_nn1(noisy/255.,train=train)
         ntire_patches = ntire_output[0]
         ntire_dists = ntire_output[1]
         ntire_inds = ntire_output[2]
 
         # -- exec nl search  --
-        nl_output = model_nl.run_nn1_dnls_search(noisy/255.)
+        nl_output = model_nl.run_nn1_dnls_search(noisy/255.,train=train)
         nl_patches = nl_output[0]
         nl_dists = nl_output[1]
         nl_inds = nl_output[2]
@@ -215,6 +223,11 @@ class TestNn1(unittest.TestCase):
         locations may be swapped.
         """
 
+        # -- dists  --
+        error = (ntire_dists - nl_dists)**2
+        error = error.sum().item()
+        assert error < 1e-8
+
         # -- 1st patch content  --
         error = (nl_patches[...,0,:] - ntire_patches[...,0,:])**2
         error = error.sum().item()
@@ -226,12 +239,7 @@ class TestNn1(unittest.TestCase):
         ntire_mp = ntire_patches[...,:,:].mean(-2)
         error = (nl_mp - ntire_mp)**2
         error = error.sum().item()
-        assert error < 1.
-
-        # -- dists  --
-        error = (ntire_dists - nl_dists)**2
-        error = error.sum().item()
-        assert error < 1e-8
+        assert error < 1.5
 
         # -- [nl] patch-based dists == dist --
         nl_patches = run_rgb2gray_patches(nl_patches,ps)
@@ -249,10 +257,11 @@ class TestNn1(unittest.TestCase):
         error = error.sum().item()
         assert error < 1e-8
 
-    def run_proc_search(self,name,sigma,device):
+    def run_proc_search(self,name,sigma,train,device):
 
         # -- get data --
         clean = self.load_burst(name).to(device)
+        clean = clean[:5,:,:96,:128].contiguous()
         noisy = clean + sigma * th.randn_like(clean)
         t,c,h,w = clean.shape
         im_shape = noisy.shape
@@ -262,29 +271,44 @@ class TestNn1(unittest.TestCase):
         model_ntire = get_lidia_model_ntire(device,im_shape,sigma)
         model_nl = get_lidia_model_nl(device,im_shape,sigma)
 
-        # -- exec nl search  --
+        # -- prepare image --
         nl_noisy = (noisy.clone()/255.-0.5)/0.5
         nl_noisy -= nl_noisy.mean(dim=(-2,-1),keepdim=True)
-        nl_output = model_nl.run_nn1_dnls_search(nl_noisy)
+
+        # -- exec nl search  --
+        nl_output = model_nl.run_nn1_dnls_search(nl_noisy.clone(),train=train)
         nl_patches = nl_output[0]
         nl_dists = nl_output[1]
         nl_inds = nl_output[2]
 
         # -- exec proc nl search loop  --
-        nl_noisy = (noisy/255.-0.5)/0.5
-        nl_res = lidia.run_search(nl_noisy,sigma)
+        nl_res = lidia.run_search(nl_noisy.clone(),sigma,train=train)
         patches,inds,dists = nl_res.p1,nl_res.i1,nl_res.d1
-        s = int(np.sqrt(patches.shape[0]/t))
-        ishape = '(t h w) k 1 c ph pw -> t h w k (c ph pw)'
-        patches = rearrange(patches,ishape,h=s,w=s)
+        print("nl_patches.shape: ",nl_patches.shape)
+        print("patches.shape: ",patches.shape)
 
         #
         # -- Viz --
         #
 
+        print("nl_dists.shape: ",nl_dists.shape)
+        print("dists.shape: ",dists.shape)
+        print("nl_inds.shape: ",nl_inds.shape)
+        print("inds.shape: ",inds.shape)
+        print(nl_inds[0,16,16])
+        print(inds[0,16,16])
+        print(nl_dists[0,16,16])
+        print(dists[0,16,16])
+
         #
         # -- Comparison --
         #
+
+        # -- eq dists --
+        print(nl_dists[0,:3,:3,:3])
+        print(dists[0,:3,:3,:3])
+        error = th.sum((nl_dists - dists)**2).item()
+        assert error < 1e-10
 
         # -- 0th neigh --
         error = (nl_patches[...,0,:] - patches[...,0,:])**2
@@ -298,7 +322,4 @@ class TestNn1(unittest.TestCase):
         error = error.sum().item()
         assert error < 1e-10
 
-        # -- eq dists --
-        error = th.sum((nl_dists - dists)**2).item()
-        assert error < 1e-10
 

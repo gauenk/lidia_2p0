@@ -97,7 +97,6 @@ def search_and_fill(imgs,patches,bufs,srch_inds,flows,args):
     nq = vals.shape[0]
     bufs.vals[:nq,...] = vals[...]
     bufs.inds[:nq,...] = inds[...]
-    th.cuda.synchronize()
 
     # -- get invalid --
     # tim = th.iinfo(th.int32).min
@@ -111,6 +110,7 @@ def search_and_fill(imgs,patches,bufs,srch_inds,flows,args):
     # bsize = flat_inds.shape[0]
     # bufs.inds[:bsize,0] = flat_inds
     # bufs.vals[:,0] = 0.
+    print("HI!")
 
     # -- fill patches --
     for key in imgs.patch_images:
@@ -133,12 +133,6 @@ def search_and_fill(imgs,patches,bufs,srch_inds,flows,args):
         pkey = dnls.simple.scatter.run(imgs_k,bufs.inds,
                                        args.ps,args.pt,
                                        dilation=args.dilation)
-        if key == "noisy":
-            print("imgs_k.shape: ",imgs_k.shape)
-            print("imgs[key].shape: ",imgs[key].shape)
-            # print(imgs_k[:,10:12,10:12])
-            print("pkey.shape: ",pkey.shape)
-            # print(pkey)
         patches[key][...] = pkey[...]
 
         # -- update dists --

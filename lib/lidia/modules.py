@@ -433,7 +433,7 @@ class NonLocalDenoiser(nn.Module):
         im_params0['pad_patches_w_full'] = im_params0['pad_patches_w']
         top_dist0, top_ind0 = self.find_nn(image_for_nn0, im_params0, self.patch_w)
         top_ind0 += im_params0['pad_patches'] * th.arange(top_ind0.shape[0],
-                                                             device=image_n0.device).view(-1, 1, 1, 1)
+                                                          device=image_n0.device).view(-1, 1, 1, 1)
         patch_dist0 = top_dist0.view(top_dist0.shape[0], -1, 14)[:, :, 1:]
 
         im_patches_n0 = unfold(image_n0, (self.patch_w, self.patch_w)).transpose(1, 0)\
@@ -451,6 +451,7 @@ class NonLocalDenoiser(nn.Module):
 
         # -- params --
         im_params1 = get_image_params(image_n1, 2 * self.patch_w - 1, 28)
+        print("im_params1: ",im_params1)
         im_params1['pad_patches_w_full'] = im_params1['pad_patches_w']
 
         # -- convert search image  --
@@ -510,7 +511,6 @@ class NonLocalDenoiser(nn.Module):
         im_patches_n1 = unfold(image_n1, (self.patch_w, self.patch_w),
                                dilation=(2, 2)).transpose(1, 0).contiguous().\
                                view(patch_numel, -1).t()
-
         im_patches_n1 = im_patches_n1[top_ind1.view(-1), :].\
             view(top_ind1.shape[0], -1, 14, patch_numel)
         patch_dist1 = top_dist1.view(top_dist1.shape[0], -1, 14)[:, :, 1:]
@@ -531,9 +531,16 @@ class NonLocalDenoiser(nn.Module):
         #
         # -- denoising --
         #
-
-        print_extrema("im_patches_n0",im_patches_n0)
-        print_extrema("im_patches_n1",im_patches_n1)
+        print("-"*30)
+        print(im_params0)
+        print(im_params1)
+        print("-"*30)
+        print("image_n0.shape: ",image_n0.shape)
+        print("image_n1.shape: ",image_n1.shape)
+        print("im_patches_n0.shape: ",im_patches_n0.shape)
+        print("im_patches_n1.shape: ",im_patches_n1.shape)
+        # print_extrema("im_patches_n0",im_patches_n0)
+        # print_extrema("im_patches_n1",im_patches_n1)
         image_dn, patch_weights = self.patch_denoise_net(im_patches_n0, patch_dist0,
                                                          im_patches_n1, patch_dist1,
                                                          im_params0, im_params1,
@@ -592,7 +599,8 @@ class NonLocalDenoiser(nn.Module):
         if not train:
             reflect_pad = [self.patch_w - 1] * 4
             constant_pad = [14] * 4
-            image = nn_func.pad(nn_func.pad(image, reflect_pad, 'reflect'), constant_pad, 'constant', -1)
+            image = nn_func.pad(nn_func.pad(image, reflect_pad, 'reflect'),
+                                constant_pad, 'constant', -1)
         else:
             image = crop_offset(image, (pad_offs,), (pad_offs,))
 

@@ -40,16 +40,34 @@ register_method = clean_code.register_method(__methods__)
 #
 # -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
-@register_method
-def run_adapt(self,noisy,sigma,srch_img=None,flows=None):
+def iscale_big2small(image):
+    # 255 -> [-1,1]
+    return (image/255. - 0.5)/0.5
 
+def iscale_small2big(image):
+    # [-1,1] -> 255
+    return 255.*(image*0.5+0.5)
+
+
+@register_method
+def run_internal_adapt(self,noisy,sigma,srch_img=None,flows=None):
+    noisy = iscale_big2small(noisy)
     opt = get_default_opt(sigma)
     total_pad = 20
     nadapts = 1
     for astep in range(nadapts):
-        clean = self.run_parts(noisy,sigma,srch_img,flows).clamp(-1, 1)
+        clean = self.run_parts(noisy,sigma,srch_img,flows,rescale=False)
+        clean = clean.detach().clamp(-1, 1)
         nl_denoiser = adapt_step(self, clean,
                                  srch_img, flows, opt, total_pad)
+
+@register_method
+def run_external_adapt(self,clean,sigma,srch_img=None,flows=None):
+    opt = get_default_opt(sigma)
+    total_pad = 20
+    nadapts = 1
+    for astep in range(nadapts):
+        nl_denoiser = adapt_step(self, clean, srch_img, flows, opt, total_pad)
 
 def adapt_step(nl_denoiser, clean, srch_img, flows, opt, total_pad):
 
@@ -78,13 +96,15 @@ def adapt_step(nl_denoiser, clean, srch_img, flows, opt, total_pad):
         # -- loaders --
         device = next(nl_denoiser.parameters()).device
         iloader = enumerate(loader)
-        for i, noisy in iloader:
+        nsamples = len(loader)
+        for i, clean_i in iloader:
 
-            clean = clean.to(device=device)
-            noisy = clean + sigma_255_to_torch(opt.sigma) * torch.randn_like(clean)
+            clean_i = clean_i.to(device=device)
+            noisy_i = clean_i + sigma_255_to_torch(opt.sigma) * th.randn_like(clean_i)
 
             optim.zero_grad()
-            image_dn = nl_denoiser.run_parts(noisy,opt.sigma,srch_img,flows)
+            image_dn = nl_denoiser.run_parts(noisy_i,opt.sigma,srch_img,flows,
+                                             train=True,rescale=False)
             image_dn = image_dn.clamp(-1,1)
 
             total_pad = (clean.shape[-1] - image_dn.shape[-1]) // 2
@@ -94,11 +114,16 @@ def adapt_step(nl_denoiser, clean, srch_img, flows, opt, total_pad):
             loss.backward()
             optim.step()
 
-            if i == batch_last_it and (epoch + 1) % opt.epochs_between_check == 0:
+            # if i % 30 == 0:
+            print("Processing %d/%d" % (i,nsamples))
+
+            # if i == batch_last_it and (epoch + 1) % opt.epochs_between_check == 0:
+            if True:
                 gc.collect()
                 torch.cuda.empty_cache()
-                deno = self.run_parts(noisy,opt.sigma,srch_img,flows)
-                deno = deno.clamp(-1, 1).cpu()
+                deno = nl_denoiser.run_parts(noisy,opt.sigma,srch_img,flows,
+                                             rescale=False)
+                deno = deno.detach().clamp(-1, 1)
                 mse = criterion(deno / 2,clean / 2).item()
                 train_psnr = -10 * math.log10(mse)
                 a,b,c = epoch + 1, opt.epoch_num, train_psnr
@@ -118,13 +143,10 @@ def get_adapt_dataset(clean,opt,total_pad):
                                     ShiftImageValues(),
                                     ])
     block_w_pad = opt.block_w + 2 * total_pad
-    print("clean.shape: ",clean.shape,total_pad)
     th_img = tensor_to_ndarray_uint8(clean)
-    print("th_img.shape: ",th_img.shape)
     th_img = rearrange(th_img,'b h c w -> b c h w')
-    print("th_img.shape: ",th_img.shape)
     dset = ImageDataSet(block_w=block_w_pad, images=th_img,
-                             transform=transform, stride=opt.dset_stride)
+                        transform=transform, stride=opt.dset_stride)
     loader = data.DataLoader(dset,batch_size=opt.train_batch_size,
                              shuffle=True, num_workers=0)
     dlen = loader.dataset.__len__()

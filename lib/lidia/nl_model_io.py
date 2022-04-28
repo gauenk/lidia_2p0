@@ -85,7 +85,7 @@ def get_default_opt(sigma):
     opt.sigma = sigma
     opt.seed = 123
     opt.max_chunk = 40000
-    opt.block_w = 16
+    opt.block_w = 64
     opt.lr = 1e-3
     opt.epoch_num = 5
     opt.epochs_between_check = 5
