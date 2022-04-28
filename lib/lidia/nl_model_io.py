@@ -3,6 +3,7 @@
 # -- from neighbors --
 from .nl_modules import *
 from .utils import *
+from .utils.model_info import select_sigma,get_default_opt
 
 # -- misc --
 import warnings
@@ -20,11 +21,6 @@ import torch as th
 import numpy as np
 from einops import rearrange
 
-
-def select_sigma(sigma):
-    sigmas = np.array([15, 25, 50])
-    msigma = np.argmin((sigmas - sigma)**2)
-    return sigmas[msigma]
 
 def get_lidia_model(device,im_shape,sigma):
 
@@ -78,19 +74,4 @@ def get_lidia_patch_model(device,im_shape,sigma):
     model.forward = patches_fwd
 
     return model
-
-
-def get_default_opt(sigma):
-    opt = edict()
-    opt.sigma = sigma
-    opt.seed = 123
-    opt.max_chunk = 40000
-    opt.block_w = 64
-    opt.lr = 1e-3
-    opt.epoch_num = 5
-    opt.epochs_between_check = 5
-    opt.dset_stride = 1
-    opt.train_batch_size = 4
-    opt.cuda_retrain = True
-    return opt
 

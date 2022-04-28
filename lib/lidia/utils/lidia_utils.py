@@ -19,7 +19,7 @@ def calc_padding_rgb(patch_w=5):
     total_pad0 = patch_w + 13
     total_pad = averaging_pad + bilinear_pad + find_nn_pad + 14 * 2
     offs = total_pad - total_pad0
-    return offs
+    return offs,total_pad
 
 def calc_padding(arch_opt):
     patch_w = 5 if arch_opt.rgb else 7

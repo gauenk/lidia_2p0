@@ -32,13 +32,14 @@ register_method = clean_code.register_method(__methods__)
 # -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 @register_method
-def run_parts(self,noisy,sigma,srch_img=None,flows=None,train=False,rescale=True):
+def run_parts(self,_noisy,sigma,srch_img=None,flows=None,train=False,rescale=True):
 
     #
     # -- Prepare --
     #
 
     # -- normalize for input ---
+    noisy = _noisy.clone()
     if rescale: noisy = (noisy/255. - 0.5)/0.5
     means = noisy.mean((-2,-1),True)
     noisy -= means
@@ -107,9 +108,9 @@ def run_parts_final(self,image_dn,patch_weights,inds,params):
     # -- prepare gather --
     t,hw,k,tr = inds.shape
     inds = rearrange(inds[...,0,:],'t p tr -> (t p) 1 tr').clone()
-    zeros = th.zeros_like(inds[...,0])
-    image_dn = rearrange(image_dn,'t (c h w) p -> (t p) 1 1 c h w',h=ps,w=ps)
-    wpatch = rearrange(patch_weights,'t (c h w) p -> (t p) 1 1 c h w',h=ps,w=ps)
+    # zeros = th.zeros_like(inds[...,0])
+    # image_dn = rearrange(image_dn,'t (c h w) p -> (t p) 1 1 c h w',h=ps,w=ps)
+    # wpatch = rearrange(patch_weights,'t (c h w) p -> (t p) 1 1 c h w',h=ps,w=ps)
 
     # -- inds --
     inds[:,:,1] += (ps//2)
@@ -118,8 +119,10 @@ def run_parts_final(self,image_dn,patch_weights,inds,params):
     # -- fold --
     h,w = params['pixels_h'],params['pixels_w']
     shape = (t,c,h,w)
-    image_dn,_ = dnls.simple.gather.run(image_dn, zeros, inds, shape=shape)
-    patch_cnt,_ = dnls.simple.gather.run(wpatch, zeros, inds, shape=shape)
+    image_dn = fold(image_dn, (h,w),(ps,ps))
+    patch_cnt = fold(patch_weights, (h,w),(ps,ps))
+    # image_dn,_ = dnls.simple.gather.run(image_dn, zeros, inds, shape=shape)
+    # patch_cnt,_ = dnls.simple.gather.run(wpatch, zeros, inds, shape=shape)
 
     # -- crop --
     row_offs = min(ps - 1, params['patches_h'] - 1)
@@ -148,8 +151,6 @@ def run_pdn(self,patches_n0,dist0,inds0,params0,patches_n1,dist1,inds1,params1):
     h,w = params0['pixels_h'],params0['pixels_w']
     agg0,s0,_ = self.run_agg0(patches_n0,dist0,inds0,h,w)
     h,w = params1['pixels_h'],params1['pixels_w']
-    print("params1")
-    print(params1)
     agg1,s1,_,_ = self.run_agg1(patches_n1,dist1,inds1,h,w)
     assert th.any(th.isnan(agg1)).item() is False
 
@@ -265,7 +266,6 @@ def run_nn0_dnls_search(self,image_n,srch_img=None,flows=None,train=False):
     t,c,h,w = image_n.shape
     # hp,wp = h+2*pad,w+2*pad
     hp,wp = params['patches_h'],params['patches_w']
-    print("hp,wp: ",hp,wp)
     queryInds = th.arange(t*hp*wp,device=device).reshape(-1,1,1,1)
     queryInds = get_3d_inds(queryInds,hp,wp)[:,0]
     t,c,h0,w0 = image_n0.shape
@@ -334,8 +334,6 @@ def run_nn0_lidia_search(self,image_n,train=False):
     # -- get image-based parameters --
     params = get_image_params(image_n0, self.patch_w, neigh_pad)
     params['pad_patches_w_full'] = params['pad_patches_w']
-    print("[lidia] img_nn0.shape: ",img_nn0.shape)
-    print(params)
 
     # -- run knn search --
     top_dist0, top_ind0 = self.find_nn(img_nn0, params, self.patch_w)
@@ -415,7 +413,6 @@ def run_nn1_dnls_search(self,image_n,srch_img=None,flows=None,train=False):
 
     # -- pad & unpack --
     image_n1 = self.prepare_image_n1(image_n,train)
-    print("image_n1.shape: ",image_n1.shape)
     params = get_image_params(image_n1, 2*self.patch_w-1, 2*neigh_pad)
 
     #
@@ -439,8 +436,6 @@ def run_nn1_dnls_search(self,image_n,srch_img=None,flows=None,train=False):
 
     # -- inds offsets --
     sh,sw = (h0 - hp)//2,(w0 - wp)//2
-    print(params)
-    print(sh,sw)
     queryInds[...,1] += sh
     queryInds[...,2] += sw
 
@@ -479,7 +474,6 @@ def run_nn1_dnls_search(self,image_n,srch_img=None,flows=None,train=False):
     sh,sw = (h1 - hp)//2,(w1 - wp)//2
     nlInds[...,1] -= sh
     nlInds[...,2] -= sw
-    print("patches.shape: ",patches.shape)
 
     return patches,nlDists,nlInds,params
 
@@ -495,7 +489,6 @@ def run_nn1_lidia_search(self,image_n,train=False):
 
     # -- pad & unpack --
     image_n1 = self.prepare_image_n1(image_n,train)
-    print("image_n1.shape: ",image_n1.shape)
 
     #
     #  -- LIDIA Search --

@@ -141,13 +141,8 @@ class Aggregation1(nn.Module):
         _nlInds[...,1] += pad
         _nlInds[...,2] += pad
 
-        # -- gather output size --
-        # hp = pixels_h + 2*(2*(ps//2)) + 2*(ps//2)
-        # wp = pixels_w + 2*(2*(ps//2)) + 2*(ps//2)
-        shape = (t,3,pixels_h,pixels_w)
-        print("[nlmod_agg1] shape: ",shape)
-
         # -- gather --
+        shape = (t,3,pixels_h,pixels_w)
         zeros = th.zeros_like(_nlDists)
         x,wx = dnls.simple.gather.run(x,zeros,_nlInds,shape=shape,dilation=2)
         x = x / wx

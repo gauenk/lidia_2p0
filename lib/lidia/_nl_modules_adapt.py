@@ -15,13 +15,15 @@ import torch as th
 from pathlib import Path
 from einops import repeat,rearrange
 
+# -- pair augs --
+import albumentations as album
+
 from .utils.io import save_burst,save_image
 from .utils.logging import print_extrema
 from .utils.inds import get_3d_inds
 
 import dnls
-from .model_io import select_sigma,get_default_opt
-
+from .utils.model_info import select_sigma,get_default_opt
 
 import torch as th
 from pathlib import Path
@@ -55,17 +57,31 @@ def run_internal_adapt(self,noisy,sigma,srch_img=None,flows=None):
     opt = get_default_opt(sigma)
     total_pad = 20
     nadapts = 1
+    if not(srch_img is None):
+        srch_img = srch_img.continguous()
     for astep in range(nadapts):
-        clean = self.run_parts(noisy,sigma,srch_img,flows,rescale=False)
+        clean = self.run_parts(noisy,sigma,noisy,flows,rescale=False)
         clean = clean.detach().clamp(-1, 1)
         nl_denoiser = adapt_step(self, clean,
                                  srch_img, flows, opt, total_pad)
 
 @register_method
 def run_external_adapt(self,clean,sigma,srch_img=None,flows=None):
+
+    # -- setup --
     opt = get_default_opt(sigma)
-    total_pad = 20
+    total_pad = 10
     nadapts = 1
+    clean = iscale_big2small(clean)
+
+    # -- eval before --
+    noisy = add_noise_to_image(clean, opt.sigma)
+    eval_nl(self,noisy,clean,srch_img,flows,opt.sigma)
+
+    # -- adapt --
+    if not(srch_img is None):
+        srch_img = srch_img.contiguous()
+        srch_img = iscale_big2small(srch_img)
     for astep in range(nadapts):
         nl_denoiser = adapt_step(self, clean, srch_img, flows, opt, total_pad)
 
@@ -77,7 +93,7 @@ def adapt_step(nl_denoiser, clean, srch_img, flows, opt, total_pad):
                               betas=(0.9, 0.999), eps=1e-8)
 
     # -- get data --
-    loader,batch_last_it = get_adapt_dataset(clean,opt,total_pad)
+    loader,batch_last_it = get_adapt_dataset(clean,srch_img,opt,total_pad)
 
     # -- train --
     noisy = add_noise_to_image(clean, opt.sigma)
@@ -91,37 +107,45 @@ def adapt_step(nl_denoiser, clean, srch_img, flows, opt, total_pad):
         # -- garbage collect --
         sys.stdout.flush()
         gc.collect()
-        torch.cuda.empty_cache()
+        th.cuda.empty_cache()
 
         # -- loaders --
         device = next(nl_denoiser.parameters()).device
         iloader = enumerate(loader)
         nsamples = len(loader)
-        for i, clean_i in iloader:
+        for i, (clean_i, srch_i) in iloader:
 
-            clean_i = clean_i.to(device=device)
+            # -- tenors on device --
+            srch_i = srch_i.to(device=device).contiguous()
+            clean_i = clean_i.to(device=device).contiguous()
             noisy_i = clean_i + sigma_255_to_torch(opt.sigma) * th.randn_like(clean_i)
+            noisy_i = noisy_i.contiguous()
 
+            # -- forward pass --
             optim.zero_grad()
-            image_dn = nl_denoiser.run_parts(noisy_i,opt.sigma,srch_img,flows,
+            image_dn = nl_denoiser.run_parts(noisy_i,opt.sigma,srch_i,flows,
                                              train=True,rescale=False)
-            image_dn = image_dn.clamp(-1,1)
 
-            total_pad = (clean.shape[-1] - image_dn.shape[-1]) // 2
-            image_ref = crop_offset(clean, (total_pad,), (total_pad,))
-            loss = torch.log10(criterion(image_dn, image_ref))
+            # -- post-process images --
+            image_dn = image_dn.clamp(-1,1)
+            total_pad = (clean_i.shape[-1] - image_dn.shape[-1]) // 2
+            image_ref = crop_offset(clean_i, (total_pad,), (total_pad,))
+
+            # -- compute loss --
+            loss = th.log10(criterion(image_dn/2., image_ref/2.))
             assert not np.isnan(loss.item())
+
+            # -- update step --
             loss.backward()
             optim.step()
 
             # if i % 30 == 0:
-            print("Processing %d/%d" % (i,nsamples))
+            print("Processing [%d/%d]: %2.2f" % (i,nsamples,-10*loss.item()))
 
-            # if i == batch_last_it and (epoch + 1) % opt.epochs_between_check == 0:
-            if True:
+            if i == batch_last_it and (epoch + 1) % opt.epochs_between_check == 0:
                 gc.collect()
-                torch.cuda.empty_cache()
-                deno = nl_denoiser.run_parts(noisy,opt.sigma,srch_img,flows,
+                th.cuda.empty_cache()
+                deno = nl_denoiser.run_parts(noisy,opt.sigma,srch_img.clone(),flows,
                                              rescale=False)
                 deno = deno.detach().clamp(-1, 1)
                 mse = criterion(deno / 2,clean / 2).item()
@@ -134,19 +158,29 @@ def adapt_step(nl_denoiser, clean, srch_img, flows, opt, total_pad):
     return nl_denoiser
 
 
-def get_adapt_dataset(clean,opt,total_pad):
-    transform = transforms.Compose([transforms.ToPILImage(),
-                                    transforms.RandomHorizontalFlip(),
-                                    transforms.RandomVerticalFlip(),
-                                    RandomTranspose(),
-                                    transforms.ToTensor(),
-                                    ShiftImageValues(),
-                                    ])
+def eval_nl(nl_denoiser,noisy,clean,srch_img,flows,sigma):
+    deno = nl_denoiser.run_parts(noisy,sigma,srch_img.clone(),flows,
+                                 rescale=False)
+    deno = deno.detach().clamp(-1, 1)
+    mse = th.mean((deno / 2-clean / 2)**2).item()
+    psnr = -10 * math.log10(mse)
+    msg = 'PSNR = {:.2f}'.format(psnr)
+    print(msg)
+
+
+def get_adapt_dataset(clean,srch_img,opt,total_pad):
+
+    # -- prepare data --
     block_w_pad = opt.block_w + 2 * total_pad
-    th_img = tensor_to_ndarray_uint8(clean)
-    th_img = rearrange(th_img,'b h c w -> b c h w')
-    dset = ImageDataSet(block_w=block_w_pad, images=th_img,
-                        transform=transform, stride=opt.dset_stride)
+    ref_img = clean
+    srch_img = srch_img
+
+    # -- create dataset --
+    dset = ImagePairDataSet(block_w=block_w_pad,
+                            images_a=ref_img, images_b=srch_img,
+                            stride=opt.dset_stride)
+
+    # -- create loader --
     loader = data.DataLoader(dset,batch_size=opt.train_batch_size,
                              shuffle=True, num_workers=0)
     dlen = loader.dataset.__len__()
@@ -156,7 +190,7 @@ def get_adapt_dataset(clean,opt,total_pad):
 
 
 def add_noise_to_image(clean, sigma):
-    noisy = clean + sigma_255_to_torch(sigma) * torch.randn_like(clean)
+    noisy = clean + sigma_255_to_torch(sigma) * th.randn_like(clean)
     return noisy
 
 def sigma_255_to_torch(sigma_255):

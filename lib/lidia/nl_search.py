@@ -175,7 +175,7 @@ def get_nn0(noisy,clean,train,args):
 
     # -- pad-crop noisy --
     neigh_pad = 14
-    pad_offs = calc_padding_rgb(args.ps)
+    pad_offs,_ = calc_padding_rgb(args.ps)
     noisy = NLD._pad_crop0(noisy,pad_offs,train,args.ps)
     if not(clean is None):
         clean = NLD._pad_crop0(clean,pad_offs,train,args.ps)
