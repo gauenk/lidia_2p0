@@ -52,21 +52,21 @@ def iscale_small2big(image):
 
 
 @register_method
-def run_internal_adapt(self,noisy,sigma,srch_img=None,flows=None):
+def run_internal_adapt(self,noisy,sigma,srch_img=None,flows=None,ws=29,wt=0):
     noisy = iscale_big2small(noisy)
     opt = get_default_opt(sigma)
     total_pad = 20
     nadapts = 1
     if not(srch_img is None):
-        srch_img = srch_img.continguous()
+        srch_img = srch_img.contiguous()
     for astep in range(nadapts):
-        clean = self.run_parts(noisy,sigma,noisy,flows,rescale=False)
+        clean = self.run_parts(noisy,sigma,noisy,flows,rescale=False,ws=ws,wt=wt)
         clean = clean.detach().clamp(-1, 1)
-        nl_denoiser = adapt_step(self, clean,
-                                 srch_img, flows, opt, total_pad)
+        nl_denoiser = adapt_step(self, clean, srch_img, flows, opt,
+                                 total_pad, ws=ws, wt=wt)
 
 @register_method
-def run_external_adapt(self,clean,sigma,srch_img=None,flows=None):
+def run_external_adapt(self,clean,sigma,srch_img=None,flows=None,ws=29,wt=0):
 
     # -- setup --
     opt = get_default_opt(sigma)
@@ -83,9 +83,10 @@ def run_external_adapt(self,clean,sigma,srch_img=None,flows=None):
         srch_img = srch_img.contiguous()
         srch_img = iscale_big2small(srch_img)
     for astep in range(nadapts):
-        nl_denoiser = adapt_step(self, clean, srch_img, flows, opt, total_pad)
+        nl_denoiser = adapt_step(self, clean, srch_img, flows, opt,
+                                 total_pad, ws=ws,wt=wt)
 
-def adapt_step(nl_denoiser, clean, srch_img, flows, opt, total_pad):
+def adapt_step(nl_denoiser, clean, srch_img, flows, opt, total_pad, ws=29, wt=0):
 
     # -- optims --
     criterion = th.nn.MSELoss(reduction='mean')
@@ -124,7 +125,7 @@ def adapt_step(nl_denoiser, clean, srch_img, flows, opt, total_pad):
             # -- forward pass --
             optim.zero_grad()
             image_dn = nl_denoiser.run_parts(noisy_i,opt.sigma,srch_i,flows,
-                                             train=True,rescale=False)
+                                             train=True,rescale=False,ws=ws,wt=wt)
 
             # -- post-process images --
             image_dn = image_dn.clamp(-1,1)
@@ -146,7 +147,7 @@ def adapt_step(nl_denoiser, clean, srch_img, flows, opt, total_pad):
                 gc.collect()
                 th.cuda.empty_cache()
                 deno = nl_denoiser.run_parts(noisy,opt.sigma,srch_img.clone(),flows,
-                                             rescale=False)
+                                             rescale=False,ws=ws,wt=wt)
                 deno = deno.detach().clamp(-1, 1)
                 mse = criterion(deno / 2,clean / 2).item()
                 train_psnr = -10 * math.log10(mse)
@@ -158,9 +159,9 @@ def adapt_step(nl_denoiser, clean, srch_img, flows, opt, total_pad):
     return nl_denoiser
 
 
-def eval_nl(nl_denoiser,noisy,clean,srch_img,flows,sigma):
+def eval_nl(nl_denoiser,noisy,clean,srch_img,flows,sigma,ws=29,wt=0):
     deno = nl_denoiser.run_parts(noisy,sigma,srch_img.clone(),flows,
-                                 rescale=False)
+                                 rescale=False,ws=ws,wt=wt)
     deno = deno.detach().clamp(-1, 1)
     mse = th.mean((deno / 2-clean / 2)**2).item()
     psnr = -10 * math.log10(mse)

@@ -32,7 +32,8 @@ register_method = clean_code.register_method(__methods__)
 # -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 @register_method
-def run_parts(self,_noisy,sigma,srch_img=None,flows=None,train=False,rescale=True):
+def run_parts(self,_noisy,sigma,srch_img=None,flows=None,train=False,rescale=True,
+              ws=29,wt=0):
 
     #
     # -- Prepare --
@@ -51,14 +52,14 @@ def run_parts(self,_noisy,sigma,srch_img=None,flows=None,train=False,rescale=Tru
     #
 
     # -- [nn0 search]  --
-    output0 = self.run_nn0(noisy.clone(),srch_img.clone(),flows,train)
+    output0 = self.run_nn0(noisy.clone(),srch_img.clone(),flows,train,ws=ws,wt=wt)
     patches0 = output0[0]
     dists0 = output0[1]
     inds0 = output0[2]
     params0 = output0[3]
 
     # -- [nn1 search]  --
-    output1 = self.run_nn1(noisy.clone(),srch_img.clone(),flows,train)
+    output1 = self.run_nn1(noisy.clone(),srch_img.clone(),flows,train,ws=ws,wt=wt)
     patches1 = output1[0]
     dists1 = output1[1]
     inds1 = output1[2]
@@ -229,12 +230,13 @@ def run_agg1(self,patches,dist1,inds1,h,w):
 # -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 @register_method
-def run_nn0(self,image_n,srch_img=None,flows=None,train=False):
-    return self.run_nn0_dnls_search(image_n,srch_img,flows,train)
+def run_nn0(self,image_n,srch_img=None,flows=None,train=False,ws=29,wt=0):
+    return self.run_nn0_dnls_search(image_n,srch_img,flows,train,ws=ws,wt=wt)
     # return self.run_nn0_lidia_search(image_n,train)
 
 @register_method
-def run_nn0_dnls_search(self,image_n,srch_img=None,flows=None,train=False):
+def run_nn0_dnls_search(self,image_n,srch_img=None,flows=None,train=False,
+                        ws=29,wt=0):
 
     #
     # -- Our Search --
@@ -274,10 +276,12 @@ def run_nn0_dnls_search(self,image_n,srch_img=None,flows=None,train=False):
     queryInds[...,2] += sw
 
     # -- search --
+    th.cuda.synchronize()
     ps = self.patch_w
-    k,pt,ws,wt,chnls = 14,1,29,0,1
+    k,pt,chnls = 14,1,1
     nlDists,nlInds = dnls.simple.search.run(img_nn0,queryInds,flows,
                                             k,ps,pt,ws,wt,chnls)
+    th.cuda.synchronize()
 
     # -- rename dists,inds --
     top_dist0 = nlDists
@@ -380,10 +384,9 @@ def run_nn0_lidia_search(self,image_n,train=False):
     return ip0,patch_dist0,dnls_inds,params
 
 @register_method
-def run_nn1(self,image_n,srch_img=None,flows=None,train=False):
-    return self.run_nn1_dnls_search(image_n,srch_img,flows,train)
+def run_nn1(self,image_n,srch_img=None,flows=None,train=False,ws=29,wt=0):
+    return self.run_nn1_dnls_search(image_n,srch_img,flows,train,ws=ws,wt=wt)
     # return self.run_nn1_lidia_search(image_n,train)
-
 
 @register_method
 def prepare_image_n1(self,image_n,train):
@@ -402,7 +405,8 @@ def prepare_image_n1(self,image_n,train):
     return image_n1
 
 @register_method
-def run_nn1_dnls_search(self,image_n,srch_img=None,flows=None,train=False):
+def run_nn1_dnls_search(self,image_n,srch_img=None,flows=None,train=False,
+                        ws=29,wt=0):
 
     # -- unpack --
     t = image_n.shape[0]
@@ -440,7 +444,7 @@ def run_nn1_dnls_search(self,image_n,srch_img=None,flows=None,train=False):
     queryInds[...,2] += sw
 
     # -- exec search --
-    k,pt,ws,wt,chnls = 14,1,29,0,1
+    k,pt,chnls = 14,1,1
     nlDists,nlInds = dnls.simple.search.run(img_nn1,queryInds,flows,
                                             k,ps,pt,ws,wt,chnls,
                                             stride=2,dilation=2)
