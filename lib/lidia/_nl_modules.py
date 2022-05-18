@@ -266,7 +266,6 @@ def run_nn0_dnls_search(self,image_n,srch_img=None,flows=None,train=False,
     # -- get search inds --
     pad = ps//2
     t,c,h,w = image_n.shape
-    # hp,wp = h+2*pad,w+2*pad
     hp,wp = params['patches_h'],params['patches_w']
     queryInds = th.arange(t*hp*wp,device=device).reshape(-1,1,1,1)
     queryInds = get_3d_inds(queryInds,hp,wp)[:,0]
