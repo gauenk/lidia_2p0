@@ -84,7 +84,6 @@ def run_parts(self,_noisy,sigma,srch_img=None,flows=None,train=False,rescale=Tru
     # -- Final Weight Aggregation --
     #
 
-    h,w = 64,64
     image_dn = self.run_parts_final(image_dn,patches_w,inds0,params0)
 
     # -- normalize for output ---
@@ -269,22 +268,32 @@ def run_nn0_dnls_search(self,image_n,srch_img=None,flows=None,train=False,
     hp,wp = params['patches_h'],params['patches_w']
     queryInds = th.arange(t*hp*wp,device=device).reshape(-1,1,1,1)
     queryInds = get_3d_inds(queryInds,hp,wp)[:,0]
+
+    # -- add padding --
     t,c,h0,w0 = image_n0.shape
     sh,sw = (h0 - hp)//2,(w0 - wp)//2
     queryInds[...,1] += sh
     queryInds[...,2] += sw
 
     # -- search --
-    th.cuda.synchronize()
-    ps = self.patch_w
-    k,pt,chnls = 14,1,1
+    k,ps,pt,chnls = 14,self.patch_w,1,1
     nlDists,nlInds = dnls.simple.search.run(img_nn0,queryInds,flows,
                                             k,ps,pt,ws,wt,chnls)
-    th.cuda.synchronize()
 
     # -- rename dists,inds --
     top_dist0 = nlDists
     top_ind0 = nlInds
+
+    # -- [testing] delete me. --
+    # inds_pad = (ps-1)//2
+    # ip = params['pad_patches']
+    # ch,cw = params['pad_patches_h'],params['pad_patches_w']
+    # params['pad_patches_w_full'] = params['pad_patches_w']
+    # _, top_ind0 = self.find_nn(img_nn0, params, self.patch_w)
+    # top_ind0 += ip * th.arange(top_ind0.shape[0],device=device).view(-1, 1, 1, 1)
+    # top_ind0 = get_3d_inds(top_ind0,ch,cw)
+    # top_ind0[...,1] += inds_pad
+    # top_ind0[...,2] += inds_pad
 
     #
     # -- Scatter Section --
@@ -297,7 +306,6 @@ def run_nn0_dnls_search(self,image_n,srch_img=None,flows=None,train=False,
     patches = rearrange(patches,ishape,t=t)
 
     # -- rehape --
-    pad_s = 2*(ps//2)
     patches = rearrange(patches,'t (h w) k d -> t h w k d',h=hp)
     top_ind0 = rearrange(top_ind0,'(t h w) k tr -> t h w k tr',t=t,h=hp)
     top_dist0 = rearrange(top_dist0,'(t h w) k -> t h w k',t=t,h=hp)
@@ -308,8 +316,9 @@ def run_nn0_dnls_search(self,image_n,srch_img=None,flows=None,train=False,
     patch_var0 = patches[..., [0], :].std(dim=-1).pow(2)*d
     patch_dist0 = th.cat((patch_dist0, patch_var0), dim=-1)
 
-    # -- rescale --
-    top_ind0[...,1] -= sw
+
+    # -- remove padding --
+    top_ind0[...,1] -= sh
     top_ind0[...,2] -= sw
 
     return patches,patch_dist0,top_ind0,params

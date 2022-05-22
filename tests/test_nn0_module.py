@@ -126,7 +126,6 @@ class TestNn0(unittest.TestCase):
         nl_patches = nl_output[0]
         nl_dists = nl_output[1]
         nl_inds = nl_output[2]
-        print("nl_patches.shape: ",nl_patches.shape)
 
         #
         # -- Comparisons --
@@ -175,7 +174,6 @@ class TestNn0(unittest.TestCase):
         ntire_patches = ntire_output[0]
         ntire_dists = ntire_output[1]
         ntire_inds = ntire_output[2]
-        print("ntire_patches.shape: ",ntire_patches.shape)
 
         # -=-=-=-=-=-=-=-=-=-=-=-
         #
@@ -262,13 +260,11 @@ class TestNn0(unittest.TestCase):
         nl_patches = nl_output[0]
         nl_dists = nl_output[1]
         nl_inds = nl_output[2]
-        print("nl_patches.shape: ",nl_patches.shape)
 
         # -- exec proc nl search loop  --
         nl_noisy = (noisy/255.-0.5)/0.5
         nl_res = lidia.run_search(nl_noisy,sigma,train=train)
         patches,inds,dists = nl_res.p0,nl_res.i0,nl_res.d0
-        print("patches.shape: ",patches.shape)
 
         #
         # -- Viz --

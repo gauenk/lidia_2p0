@@ -127,14 +127,14 @@ class TestNn1(unittest.TestCase):
         # -- Viz and Prints --
         #
 
-        print("nl_dists.shape: ",nl_dists.shape)
-        print("ntire_dists.shape: ",ntire_dists.shape)
-        print("nl_inds.shape: ",nl_inds.shape)
-        print("ntire_inds.shape: ",ntire_inds.shape)
-        print(nl_inds[0,16,16])
-        print(ntire_inds[0,16,16])
-        print(nl_dists[0,16,16])
-        print(ntire_dists[0,16,16])
+        # print("nl_dists.shape: ",nl_dists.shape)
+        # print("ntire_dists.shape: ",ntire_dists.shape)
+        # print("nl_inds.shape: ",nl_inds.shape)
+        # print("ntire_inds.shape: ",ntire_inds.shape)
+        # print(nl_inds[0,16,16])
+        # print(ntire_inds[0,16,16])
+        # print(nl_dists[0,16,16])
+        # print(ntire_dists[0,16,16])
 
         # print("-"*20)
         # print("-"*20)
@@ -195,24 +195,24 @@ class TestNn1(unittest.TestCase):
 
         hi,wi = 0,0
         # hi,wi = 16,16
-        print("nl_dists.shape: ",nl_dists.shape)
-        print("ntire_dists.shape: ",ntire_dists.shape)
-        print("nl_inds.shape: ",nl_inds.shape)
-        print("ntire_inds.shape: ",ntire_inds.shape)
-        print("-"*20)
-        print("-"*20)
-        print(nl_inds[0,hi,wi])
-        print(ntire_inds[0,hi,wi])
-        print("-"*20)
-        print("-"*20)
-        print(nl_dists[0,hi,wi])
-        print(ntire_dists[0,hi,wi])
-        print("-"*20)
-        print("-"*20)
-        print(ntire_patches[0,hi,wi,0].view(3,5,5)[0])
-        print(nl_patches[0,hi,wi,0].view(3,5,5)[0])
-        print("-"*20)
-        print("-"*20)
+        # print("nl_dists.shape: ",nl_dists.shape)
+        # print("ntire_dists.shape: ",ntire_dists.shape)
+        # print("nl_inds.shape: ",nl_inds.shape)
+        # print("ntire_inds.shape: ",ntire_inds.shape)
+        # print("-"*20)
+        # print("-"*20)
+        # print(nl_inds[0,hi,wi])
+        # print(ntire_inds[0,hi,wi])
+        # print("-"*20)
+        # print("-"*20)
+        # print(nl_dists[0,hi,wi])
+        # print(ntire_dists[0,hi,wi])
+        # print("-"*20)
+        # print("-"*20)
+        # print(ntire_patches[0,hi,wi,0].view(3,5,5)[0])
+        # print(nl_patches[0,hi,wi,0].view(3,5,5)[0])
+        # print("-"*20)
+        # print("-"*20)
 
         #
         # -- Comparisons --
@@ -284,21 +284,19 @@ class TestNn1(unittest.TestCase):
         # -- exec proc nl search loop  --
         nl_res = lidia.run_search(nl_noisy.clone(),sigma,train=train)
         patches,inds,dists = nl_res.p1,nl_res.i1,nl_res.d1
-        print("nl_patches.shape: ",nl_patches.shape)
-        print("patches.shape: ",patches.shape)
 
         #
         # -- Viz --
         #
 
-        print("nl_dists.shape: ",nl_dists.shape)
-        print("dists.shape: ",dists.shape)
-        print("nl_inds.shape: ",nl_inds.shape)
-        print("inds.shape: ",inds.shape)
-        print(nl_inds[0,16,16])
-        print(inds[0,16,16])
-        print(nl_dists[0,16,16])
-        print(dists[0,16,16])
+        # print("nl_dists.shape: ",nl_dists.shape)
+        # print("dists.shape: ",dists.shape)
+        # print("nl_inds.shape: ",nl_inds.shape)
+        # print("inds.shape: ",inds.shape)
+        # print(nl_inds[0,16,16])
+        # print(inds[0,16,16])
+        # print(nl_dists[0,16,16])
+        # print(dists[0,16,16])
 
         #
         # -- Comparison --

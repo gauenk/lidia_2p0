@@ -34,7 +34,6 @@ def exec_search_dnls(patches,imgs,flows,mask,bufs,args):
     for index in range(args.nstreams):
 
         # -- grab access --
-        print("total: ",mask.sum().item(),args.bsize)
         srch_inds = search_mask.mask2inds(mask,bsize,args.rand_mask)
         if srch_inds.shape[0] == 0:
             done = True
@@ -110,7 +109,6 @@ def search_and_fill(imgs,patches,bufs,srch_inds,flows,args):
     # bsize = flat_inds.shape[0]
     # bufs.inds[:bsize,0] = flat_inds
     # bufs.vals[:,0] = 0.
-    print("HI!")
 
     # -- fill patches --
     for key in imgs.patch_images:

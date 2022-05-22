@@ -130,7 +130,7 @@ class Aggregation1(nn.Module):
         patch_cnt = th.ones(x[0:1, ...].shape, device=x.device)
         patch_cnt = fold(patch_cnt, isize, ksize, dilation=dil,padding=pads)
         x_v2 = fold(x, isize, ksize, dilation=dil,padding=pads) / patch_cnt
-        print("[mod_agg1] folded_x.shape: ",x_v2.shape)
+        # print("[mod_agg1] folded_x.shape: ",x_v2.shape)
         x = x_v2
 
         # -- view --
@@ -262,10 +262,10 @@ class SeparableFcNet(nn.Module):
 
         else:
             # -- sep comps --
-            print_extrema("[pre-sep] x0",x0)
-            print_extrema("[pre-sep] x1",x1)
-            print("x0.shape: ",x0.shape)
-            print("x1.shape: ",x1.shape)
+            # print_extrema("[pre-sep] x0",x0)
+            # print_extrema("[pre-sep] x1",x1)
+            # print("x0.shape: ",x0.shape)
+            # print("x1.shape: ",x1.shape)
             x0 = self.sep_part1_s0(x0)
             x1 = self.sep_part1_s1(x1)
 
@@ -276,7 +276,7 @@ class SeparableFcNet(nn.Module):
 
             # -- agg1 --
             y_out1 = self.ver_hor_agg1_pre(x1)
-            print("y_out1.shape: ",y_out1.shape)
+            # print("y_out1.shape: ",y_out1.shape)
             y_out1 = weights1 * self.agg1(y_out1 / weights1,
                                           im_params1['pixels_h'],
                                           im_params1['pixels_w'])
@@ -450,7 +450,7 @@ class NonLocalDenoiser(nn.Module):
 
         # -- params --
         im_params1 = get_image_params(image_n1, 2 * self.patch_w - 1, 28)
-        print("im_params1: ",im_params1)
+        # print("im_params1: ",im_params1)
         im_params1['pad_patches_w_full'] = im_params1['pad_patches_w']
 
         # -- convert search image  --
@@ -530,14 +530,14 @@ class NonLocalDenoiser(nn.Module):
         #
         # -- denoising --
         #
-        print("-"*30)
-        print(im_params0)
-        print(im_params1)
-        print("-"*30)
-        print("image_n0.shape: ",image_n0.shape)
-        print("image_n1.shape: ",image_n1.shape)
-        print("im_patches_n0.shape: ",im_patches_n0.shape)
-        print("im_patches_n1.shape: ",im_patches_n1.shape)
+        # print("-"*30)
+        # print(im_params0)
+        # print(im_params1)
+        # print("-"*30)
+        # print("image_n0.shape: ",image_n0.shape)
+        # print("image_n1.shape: ",image_n1.shape)
+        # print("im_patches_n0.shape: ",im_patches_n0.shape)
+        # print("im_patches_n1.shape: ",im_patches_n1.shape)
         # print_extrema("im_patches_n0",im_patches_n0)
         # print_extrema("im_patches_n1",im_patches_n1)
         image_dn, patch_weights = self.patch_denoise_net(im_patches_n0, patch_dist0,

@@ -75,7 +75,6 @@ def get_params(sigma,verbose=False,version=None):
     # version = "iphone"
     if version is None:
         version = "iphone_v2"
-    print("version: ",version)
     if version == "exp":
         params['nSimilarPatches'][0] = 100
         params['nSimilarPatches'][1] = 60

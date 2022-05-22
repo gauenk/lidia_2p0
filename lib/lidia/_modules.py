@@ -131,7 +131,7 @@ def run_pdn(self,patches_n0,dist0,inds0,params0,patches_n1,dist1,inds1,params1):
     # -- final output --
     inputs = th.cat((s0, s1, agg0, agg1), dim=-2)
     sep_net = self.patch_denoise_net.separable_fc_net
-    print(inputs.min(),inputs.mean(),inputs.max())
+    # print(inputs.min(),inputs.mean(),inputs.max())
     noise = sep_net.sep_part2(inputs)
 
     # -- compute denoised patches --
@@ -206,7 +206,6 @@ def run_nn0(self,image_n,train=False):
     patch_numel = (self.patch_w ** 2) * image_n.shape[1]
     device = image_n.device
     image_n0 = self.pad_crop0(image_n, self.pad_offs, train)
-    print("image_n0.shape: ",image_n0.shape)
 
     # -- get search image --
     if self.arch_opt.rgb: img_nn0 = self.rgb2gray(image_n0)
@@ -215,11 +214,8 @@ def run_nn0(self,image_n,train=False):
     # -- get image-based parameters --
     params = get_image_params(image_n0, self.patch_w, neigh_pad)
     params['pad_patches_w_full'] = params['pad_patches_w']
-    print("image_n.shape: ",image_n.shape)
-    print(params)
 
     # -- run knn search --
-    print("img_nn0.shape: ",img_nn0.shape)
     top_dist0, top_ind0 = self.find_nn(img_nn0, params, self.patch_w)
 
     # -- prepare [dists,inds] --
@@ -334,13 +330,11 @@ def run_nn1(self,image_n,train=False):
     im_patches_n1 = unfold(image_n1, (self.patch_w, self.patch_w),
                            dilation=(2, 2)).transpose(1, 0).contiguous().\
                            view(patch_numel, -1).t()
-    print("[modules] im_patches_n1.shape: ",im_patches_n1.shape)
 
     # -- organize by knn --
     np = top_ind1.shape[0]
     pn = patch_numel
     im_patches_n1 = im_patches_n1[top_ind1.view(-1), :].view(np, -1, neigh_pad, pn)
-    print("[modules] im_patches_n1.shape: ",im_patches_n1.shape)
 
     # -- append anchor patch spatial variance --
     patch_dist1 = top_dist1.view(top_dist1.shape[0], -1, neigh_pad)[:, :, 1:]
@@ -367,7 +361,6 @@ def run_nn1(self,image_n,train=False):
     top_ind1 = rearrange(top_ind1,'(t h w) k tr -> t h w k tr',t=t,h=h)
     ip1 = im_patches_n1
     ip1 = rearrange(ip1,'t (h w) k d -> t h w k d',h=h)
-    print("[ip1] ip1.shape: ",ip1.shape)
 
     return ip1,pdist,top_ind1,params
 

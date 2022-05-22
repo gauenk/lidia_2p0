@@ -84,16 +84,16 @@ class Aggregation0(nn.Module):
         _,_,pt,_,ps,ps = x.shape
 
         # -- [gather] non-local params --
+        pad = ps//2
         _nlDists = rearrange(nlDists[:,:,0],'t p -> (t p) 1').clone()
         _nlInds = rearrange(nlInds[:,:,0],'t p thr -> (t p) 1 thr').clone()
         ones = th.zeros_like(_nlDists)
-        pad = ps//2
         _nlInds[...,1] += pad#(ps-1) - ps//2 # delta pads from 72 -> 68
         _nlInds[...,2] += pad#(ps-1) - ps//2
 
         # -- [gather] prepare out size --
-        hp = pixels_h + 2*(ps-1)
-        wp = pixels_w + 2*(ps-1)
+        hp = pixels_h# + 2*(ps-1)
+        wp = pixels_w# + 2*(ps-1)
         shape = (t,3,hp,wp)
 
         # -- exec scatter --
@@ -356,8 +356,8 @@ class PatchDenoiseNet(nn.Module):
     def forward(self, patches_n0, dist0, inds0, patches_n1, dist1, inds1,
                 im_params0, im_params1, save_memory, max_chunk):
 
-        print_extrema("patches_n0",patches_n0)
-        print_extrema("patches_n1",patches_n1)
+        # print_extrema("patches_n0",patches_n0)
+        # print_extrema("patches_n1",patches_n1)
 
         weights0 = self.weights_net0(torch.exp(-self.alpha0.abs() *\
                                                dist0)).unsqueeze(-1)

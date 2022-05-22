@@ -70,9 +70,6 @@ def run_search(noisy, sigma,
 
     # -- number of elems --
     hb,wb = params0['patches_h'],params0['patches_w']
-    print(params0)
-    print(params1)
-
 
     # -- get model --
     args.lidia_model = None
@@ -107,11 +104,9 @@ def run_search(noisy, sigma,
     # -- batching params --
     nelems,nbatches = utils.batching.batch_params(mask1,args.bsize,args.nstreams)
     cmasked_prev = nelems
-    print(mask1[0].sum())
 
     # -- exec search --
     for level in range(args.nlevels):
-        print("LEVEL: ",level)
         key = patches.levels[level]
         args.dilation = search_dilations[level]
         mask_l = masks[level]
@@ -127,8 +122,6 @@ def run_search(noisy, sigma,
     i1 = bufs["s1"].inds.view(t,hb,wb,args.k,3)
     i1[...,1] -= hs1
     i1[...,2] -= ws1
-    print(i0[0,:3,:3,0])
-    print(i1[0,:3,:3,0])
 
     # -- packup results --
     res = edict()
@@ -152,13 +145,13 @@ def get_search_mask(noisy,noisy_pad,iparams,args):
     # -- get excess pix --
     _,_,hp,wp = noisy_pad.shape
     hs,ws = (hp - hb)//2,(wp - wb)//2
-    print("-"*30)
-    print("noisy.shape: ",noisy.shape)
-    print("noisy_pad.shape: ",noisy_pad.shape)
-    print(hs,ws)
-    print(hb,wb)
-    print(iparams)
-    print("-"*30)
+    # print("-"*30)
+    # print("noisy.shape: ",noisy.shape)
+    # print("noisy_pad.shape: ",noisy_pad.shape)
+    # print(hs,ws)
+    # print(hb,wb)
+    # print(iparams)
+    # print("-"*30)
 
     # -- compute center of base mask --
     hslice = slice(hs,hb+hs)

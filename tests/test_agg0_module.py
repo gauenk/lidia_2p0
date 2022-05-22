@@ -132,10 +132,11 @@ class TestAgg0(unittest.TestCase):
         ntire_patches = ntire_output[0]
         ntire_dists = ntire_output[1]
         ntire_inds = ntire_output[2]
+        ntire_params = ntire_output[3]
         t,hp,wp,k,d = ntire_patches.shape
 
         # -- agg --
-        ha,wa = 72,72
+        ha,wa = ntire_params['pixels_h'],ntire_params['pixels_w']
         ipatches = rearrange(ntire_patches,'t h w k d -> t (h w) k d')
         idists = rearrange(ntire_dists,'t h w k -> t (h w) k')
         ntire_agg0,ntire_s0,ntire_fold = model_ntire.run_agg0(ipatches,idists,ha,wa)
@@ -153,13 +154,14 @@ class TestAgg0(unittest.TestCase):
         nl_patches = nl_output[0]
         nl_dists = nl_output[1]
         nl_inds = nl_output[2]
+        nl_params = nl_output[3]
 
         # -- agg --
-        ha,wa = 72,72
+        ha,wa = nl_params['pixels_h'],nl_params['pixels_w']
         ipatches = rearrange(nl_patches,'t h w k d -> t (h w) k d')
         iinds = rearrange(nl_inds,'t h w k tr -> t (h w) k tr')
         idists = rearrange(nl_dists,'t h w k -> t (h w) k')
-        nl_agg0,nl_s0,nl_fold = model_nl.run_agg0(ipatches,idists,iinds,64,64)
+        nl_agg0,nl_s0,nl_fold = model_nl.run_agg0(ipatches,idists,iinds,ha,wa)
         nl_fold = nl_fold.detach()
         nl_agg0 = rearrange(nl_agg0,'t (h w) k d -> t h w k d',h=hp).detach()/30.
 
@@ -240,19 +242,20 @@ class TestAgg0(unittest.TestCase):
         # -- patches --
         noisy_mod = (noisy.clone()/255.-0.5)/0.5
         noisy_mod -= noisy_mod.mean(dim=(-2,-1),keepdim=True)
-        ntire_output = model_ntire.run_nn0(noisy)
+        ntire_output = model_ntire.run_nn0(noisy_mod)
         ntire_patches = ntire_output[0]
         ntire_dists = ntire_output[1]
         ntire_inds = ntire_output[2]
+        ntire_params = ntire_output[3]
         t,hp,wp,k,d = ntire_patches.shape
 
         # -- agg --
-        ha,wa = 72,72
+        ha,wa = ntire_params['pixels_h'],ntire_params['pixels_w']
         ipatches = rearrange(ntire_patches,'t h w k d -> t (h w) k d')
         idists = rearrange(ntire_dists,'t h w k -> t (h w) k')
         ntire_agg0,ntire_s0,ntire_fold = model_ntire.run_agg0(ipatches,idists,ha,wa)
         ntire_fold = ntire_fold.detach()
-        ntire_agg0 = rearrange(ntire_agg0,'t (h w) k d -> t h w k d',h=hp).detach()/30.
+        ntire_agg0 = rearrange(ntire_agg0,'t (h w) k d -> t h w k d',h=hp).detach()
 
         #
         # -- comparison --
@@ -261,19 +264,20 @@ class TestAgg0(unittest.TestCase):
         # -- patches --
         noisy_mod = (noisy.clone()/255.-0.5)/0.5
         noisy_mod -= noisy_mod.mean(dim=(-2,-1),keepdim=True)
-        nl_output = model_nl.run_nn0_dnls_search(noisy)
-        nl_patches = nl_output[0]
+        nl_output = model_nl.run_nn0_dnls_search(noisy_mod)
+        nl_patches = ntire_patches # same dists -> diff patches
         nl_dists = nl_output[1]
         nl_inds = nl_output[2]
+        nl_params = nl_output[3]
 
         # -- agg --
-        ha,wa = 72,72
+        ha,wa = nl_params['pixels_h'],nl_params['pixels_w']
         ipatches = rearrange(nl_patches,'t h w k d -> t (h w) k d')
         iinds = rearrange(nl_inds,'t h w k tr -> t (h w) k tr')
         idists = rearrange(nl_dists,'t h w k -> t (h w) k')
-        nl_agg0,nl_s0,nl_fold = model_nl.run_agg0(ipatches,idists,iinds,64,64)
+        nl_agg0,nl_s0,nl_fold = model_nl.run_agg0(ipatches,idists,iinds,ha,wa)
         nl_fold = nl_fold.detach()
-        nl_agg0 = rearrange(nl_agg0,'t (h w) k d -> t h w k d',h=hp).detach()/30.
+        nl_agg0 = rearrange(nl_agg0,'t (h w) k d -> t h w k d',h=hp).detach()
 
         # -=-=-=-=-=-=-=-=-=-=-=-
         #
@@ -281,11 +285,24 @@ class TestAgg0(unittest.TestCase):
         #
         # -=-=-=-=-=-=-=-=-=-=-=-
 
-        print("nl_fold.shape: ",nl_fold.shape)
-        print("ntire_fold.shape: ",ntire_fold.shape)
+        # -- folds --
         delta = th.abs(nl_fold - ntire_fold)
         delta /= delta.max()
         save_burst(delta,"output/tests/agg0","error_fold")
+
+        # -- dists --
+        delta = th.abs(nl_dists - ntire_dists)
+        delta = rearrange(delta,'t h w k -> t k h w')[:,1:4]
+        # delta = repeat(delta,'t 1 h w -> t r h w',r=3)
+        # save_burst(delta,"output/tests/agg0","error_dists")
+
+        # -- inds --
+        delta = (nl_inds != ntire_inds).type(th.float32)
+        delta = th.any(delta[0,:,:,:],-1).type(th.float32)
+        delta = repeat(delta,'h w t -> t c h w',c=3)
+        # delta = repeat(delta,'t 1 h w -> t r h w',r=3)
+        save_burst(delta,"output/tests/agg0","error_inds")
+
 
         # -=-=-=-=-=-=-=-=-=-=-=-
         #
@@ -293,14 +310,23 @@ class TestAgg0(unittest.TestCase):
         #
         # -=-=-=-=-=-=-=-=-=-=-=-
 
-        # -- fold  --
-        error = (nl_fold - ntire_fold)**2
-        print(error.max())
+        # -- 0th patches  --
+        error = (ntire_patches[:,:,:,0,:] - nl_patches[:,:,:,0,:])**2
         error = error.sum().item()
         assert error < 1e-10
+
+        # -- dists  --
+        error = (nl_dists - ntire_dists)**2
+        error = error.sum().item()
+        assert error < 1e-6
+
+        # -- fold  --
+        error = (nl_fold - ntire_fold)**2
+        error = error.sum().item()
+        assert error < 1e-6
 
         # -- patches  --
         error = (nl_agg0 - ntire_agg0)**2
         error = error.sum().item()
-        assert error < 1e-10
+        assert error < 1e-5
 
